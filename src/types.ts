@@ -35,6 +35,7 @@ export interface SurveyRecord {
   factoryCode?: string | null; // Mã nhà máy (dành riêng cho ACV, e.g. 'SG 1', 'BD', etc.)
   facing: number; // Shelf facing count
   photo: string | null; // base64 string
+  photos?: string[]; // array of base64 photo strings
   timestamp: string; // YYYY-MM-DD HH:mm:ss
 }
 

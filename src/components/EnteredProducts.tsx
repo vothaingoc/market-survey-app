@@ -180,16 +180,26 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
                     </div>
                   </div>
 
-                  {/* Optional Photo visual indicator */}
-                  {record.photo && (
-                    <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
-                      <img
-                        src={record.photo}
-                        alt="Ảnh thu nhỏ"
-                        className="w-8 h-8 rounded-md object-cover border border-slate-200 shrink-0"
-                        referrerPolicy="no-referrer"
-                      />
-                      <span className="text-[10px] text-slate-500 font-medium">Đã nén & đính kèm ảnh chụp kệ hàng</span>
+                  {/* Optional Photos visual indicator */}
+                  {((record.photos && record.photos.length > 0) || record.photo) && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 space-y-1">
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                        <span>Ảnh chụp đính kèm:</span>
+                        <span className="font-bold font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-150">
+                          {record.photos && record.photos.length > 0 ? record.photos.length : 1} ảnh
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1.5 overflow-x-auto pt-0.5 pb-0.5">
+                        {(record.photos && record.photos.length > 0 ? record.photos : [record.photo!]).map((pUrl, pIdx) => (
+                          <img
+                            key={pIdx}
+                            src={pUrl}
+                            alt={`Ảnh ${pIdx + 1}`}
+                            className="w-9 h-9 rounded-md object-cover border border-slate-200 shrink-0 shadow-xs"
+                            referrerPolicy="no-referrer"
+                          />
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

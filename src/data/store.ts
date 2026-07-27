@@ -192,7 +192,7 @@ export const OfflineDB = {
         r.expiryDate,
         r.factoryCode || '',
         r.facing,
-        r.photo ? 'Có' : 'Không'
+        r.photoCount || (r.photos && r.photos.length > 0 ? `Có (${r.photos.length} ảnh)` : (r.photo ? 'Có (1 ảnh)' : 'Không'))
       ];
     });
 
@@ -243,6 +243,7 @@ export const OfflineDB = {
           expirationDate: r.expiryDate || '',
           factoryCode: r.factoryCode || null,
           faceCount: r.facing || 0,
+          photoCount: r.photos && r.photos.length > 0 ? r.photos.length : (r.photo ? 1 : 0),
         };
       });
 

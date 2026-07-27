@@ -32,7 +32,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   const [expiryRaw, setExpiryRaw] = useState<string>('');
   const [factoryCode, setFactoryCode] = useState<string>('');
   const [facing, setFacing] = useState<number>(1);
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
 
   const isACV = useMemo(() => {
     return sku.manufacturer?.trim().toUpperCase() === 'ACV';
@@ -49,7 +49,11 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       setExpiryRaw(initialRecord.expiryDate.replace(/\//g, '').replace(/^20/, ''));
       setFactoryCode(initialRecord.factoryCode || '');
       setFacing(initialRecord.facing);
-      setPhoto(initialRecord.photo);
+      
+      const loadedPhotos = initialRecord.photos && initialRecord.photos.length > 0
+        ? initialRecord.photos
+        : (initialRecord.photo ? [initialRecord.photo] : []);
+      setPhotos(loadedPhotos);
     }
   }, [initialRecord]);
 
@@ -139,19 +143,38 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
   // Photo handlers
   const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhoto(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const fileArray = Array.from(files);
+      let loadedCount = 0;
+      const newPhotoList: string[] = [];
+
+      fileArray.forEach((file: File) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (reader.result) {
+            newPhotoList.push(reader.result as string);
+          }
+          loadedCount++;
+          if (loadedCount === fileArray.length) {
+            setPhotos(prev => [...prev, ...newPhotoList]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = '';
     }
   };
 
   const handleSimulatePhoto = () => {
-    const mockSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%23b91c1c"/><rect x="30" y="30" width="240" height="140" fill="%23fff" stroke="%23ff0" stroke-width="4"/><text x="150" y="80" fill="%23b91c1c" font-family="sans-serif" font-weight="bold" font-size="24" text-anchor="middle">HẢO HẢO</text><text x="150" y="115" fill="%23ff9f00" font-family="sans-serif" font-weight="bold" font-size="14" text-anchor="middle">Tôm Chua Cay</text><text x="150" y="150" fill="%23555" font-family="sans-serif" font-size="10" text-anchor="middle">MẪU KHẢO SÁT CHỤP</text></svg>`;
-    setPhoto(mockSvg);
+    const index = photos.length + 1;
+    const cleanSkuName = sku.name.replace(/</g, '').replace(/>/g, '');
+    const mockSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%23b91c1c"/><rect x="30" y="30" width="240" height="140" fill="%23fff" stroke="%23ff0" stroke-width="4"/><text x="150" y="80" fill="%23b91c1c" font-family="sans-serif" font-weight="bold" font-size="18" text-anchor="middle">${cleanSkuName}</text><text x="150" y="115" fill="%23ff9f00" font-family="sans-serif" font-weight="bold" font-size="14" text-anchor="middle">Ảnh %23${index}</text><text x="150" y="150" fill="%23555" font-family="sans-serif" font-size="10" text-anchor="middle">MẪU KHẢO SÁT CHỤP</text></svg>`;
+    setPhotos(prev => [...prev, mockSvg]);
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleFormSubmit = (continueSameSku: boolean) => {
@@ -176,13 +199,12 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       expiryDate: finalExpiry,
       factoryCode: isACV ? (factoryCode || null) : null,
       facing,
-      photo,
+      photo: photos.length > 0 ? photos[0] : null,
+      photos: photos,
     }, continueSameSku);
 
     if (continueSameSku) {
       // Clear specific fields as requested by "Save & Nhập lại SKU này"
-      // Keep: SKU
-      // Clear: Distribution, Prices, Expiration Date, Factory Code, Shelf Facing, Photo
       setType('Chính ngạch');
       setPrice1('');
       setPrice5('');
@@ -190,7 +212,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       setExpiryRaw('');
       setFactoryCode('');
       setFacing(1);
-      setPhoto(null);
+      setPhotos([]);
     }
   };
 
@@ -475,63 +497,77 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
         </div>
 
         {/* FIELD E: SKU PHOTO */}
-        <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm space-y-2">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-            Ảnh chụp nhãn giá hoặc HSD (Không bắt buộc)
-          </span>
+        <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+              Ảnh chụp sản phẩm (Chụp nhiều ảnh)
+            </span>
+            {photos.length > 0 && (
+              <span className="text-xs font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200">
+                Đã chụp {photos.length} ảnh
+              </span>
+            )}
+          </div>
 
-          <div className="flex items-center space-x-3">
-            {photo ? (
-              <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shrink-0">
-                <img
-                  src={photo}
-                  alt="Ảnh chụp sản phẩm"
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-                <button
-                  id="btn-remove-record-photo"
-                  type="button"
-                  onClick={() => setPhoto(null)}
-                  className="absolute top-1 right-1 bg-slate-900/80 text-white p-0.5 rounded-full hover:bg-slate-900 active:scale-95"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="w-20 h-20 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 shrink-0">
-                <Camera className="w-6 h-6" />
+          <div className="flex flex-col space-y-2.5">
+            {/* List of captured photos */}
+            {photos.length > 0 && (
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1 pt-1">
+                {photos.map((pUrl, idx) => (
+                  <div key={idx} className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shrink-0">
+                    <img
+                      src={pUrl}
+                      alt={`Ảnh ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span className="absolute bottom-1 left-1 bg-slate-900/80 text-white font-mono text-[9px] px-1 py-0.2 rounded font-bold">
+                      #{idx + 1}
+                    </span>
+                    <button
+                      id={`btn-remove-record-photo-${idx}`}
+                      type="button"
+                      onClick={() => handleRemovePhoto(idx)}
+                      className="absolute top-1 right-1 bg-red-600 text-white p-0.5 rounded-full hover:bg-red-700 active:scale-95 shadow-xs"
+                      title="Xóa ảnh này"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
-            <div className="flex-1 space-y-1.5">
-              <span className="text-[10px] text-slate-400 block leading-tight">
-                Hệ thống nén ảnh chạy ngầm siêu nhanh, không làm chậm thao tác khảo sát.
-              </span>
-              <div className="flex space-x-2">
-                {/* Real File input */}
-                <label className="bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 cursor-pointer shadow-sm">
-                  Chụp ảnh thực tế
-                  <input
-                    id="input-record-photo-file"
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handlePhotoFileChange}
-                    className="hidden"
-                  />
-                </label>
-                {/* Simulated Quick Photo */}
-                <button
-                  id="btn-simulate-record-photo"
-                  type="button"
-                  onClick={handleSimulatePhoto}
-                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-150"
-                >
-                  Giả lập nhanh
-                </button>
-              </div>
+            <div className="flex items-center space-x-2">
+              {/* Real File input */}
+              <label className="flex-1 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 cursor-pointer shadow-xs flex items-center justify-center space-x-1.5 transition-colors">
+                <Camera className="w-4 h-4 text-slate-600" />
+                <span>{photos.length > 0 ? 'Chụp thêm ảnh' : 'Chụp ảnh thực tế'}</span>
+                <input
+                  id="input-record-photo-file"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  onChange={handlePhotoFileChange}
+                  className="hidden"
+                />
+              </label>
+
+              {/* Simulated Quick Photo */}
+              <button
+                id="btn-simulate-record-photo"
+                type="button"
+                onClick={handleSimulatePhoto}
+                className="bg-purple-50 hover:bg-purple-100 active:bg-purple-200 text-purple-800 text-xs font-bold px-3 py-2 rounded-xl border border-purple-200 transition-colors"
+              >
+                Giả lập ảnh
+              </button>
             </div>
+
+            <span className="text-[10px] text-slate-400 block leading-tight">
+              Có thể chụp nhiều ảnh cho cùng 1 SKU (chụp nhãn giá, HSD, kệ hàng, bao bì...)
+            </span>
           </div>
         </div>
 
