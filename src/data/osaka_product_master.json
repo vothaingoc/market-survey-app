@@ -1,0 +1,290 @@
+{
+  "source": "Osaka Vietnamese retail instant-noodle market survey",
+  "sorting_rule": "Sort SKUs within each manufacturer by store_frequency descending, then preserve source order for ties.",
+  "manufacturers": [
+    {
+      "id": "acv",
+      "name": "ACV",
+      "skus": [
+        {
+          "name": "HAO HAO TCC",
+          "store_frequency": 9
+        },
+        {
+          "name": "MUOI HAO HAO",
+          "store_frequency": 6
+        },
+        {
+          "name": "SIUKAY HAI SAN",
+          "store_frequency": 6
+        },
+        {
+          "name": "MI LAU THAI VI TOM",
+          "store_frequency": 5
+        },
+        {
+          "name": "MIEN PHU HUONG LAU THAI TOM",
+          "store_frequency": 5
+        },
+        {
+          "name": "HANDY HAO HAO",
+          "store_frequency": 5
+        },
+        {
+          "name": "HAO HAO TOM XAO CHUA NGOT",
+          "store_frequency": 3
+        },
+        {
+          "name": "MIEN PHU HUONG SUON HEO",
+          "store_frequency": 3
+        },
+        {
+          "name": "MIEN PHU HUONG THIT BAM",
+          "store_frequency": 3
+        },
+        {
+          "name": "MI GOOD PHO GA",
+          "store_frequency": 2
+        },
+        {
+          "name": "MIEN PHU HUONG BLOCK",
+          "store_frequency": 2
+        },
+        {
+          "name": "DE NHAT PHO BO",
+          "store_frequency": 2
+        },
+        {
+          "name": "MODERN",
+          "store_frequency": 2
+        },
+        {
+          "name": "SIUKAY BO",
+          "store_frequency": 1
+        },
+        {
+          "name": "SIUKAY PHO TRON HS",
+          "store_frequency": 1
+        },
+        {
+          "name": "DE NHAT PHO TRON BO",
+          "store_frequency": 1
+        },
+        {
+          "name": "DE NHAT PHO TRON THAP CAM CHAY",
+          "store_frequency": 1
+        },
+        {
+          "name": "MIEN PHU HUONG THIT HEO NAU MANG",
+          "store_frequency": 0
+        }
+      ]
+    },
+    {
+      "id": "masan",
+      "name": "MASAN",
+      "skus": [
+        {
+          "name": "OMACHI LAU TCC",
+          "store_frequency": 9
+        },
+        {
+          "name": "OMACHI SUON HAM NGU QUA",
+          "store_frequency": 9
+        },
+        {
+          "name": "OMACHI MI TRON XOT SPAGHETTI",
+          "store_frequency": 6
+        },
+        {
+          "name": "PHO STORY BO",
+          "store_frequency": 6
+        },
+        {
+          "name": "KOKOMI MI TCC",
+          "store_frequency": 6
+        },
+        {
+          "name": "OMACHI XOT BO HAM",
+          "store_frequency": 5
+        },
+        {
+          "name": "PHO STORY GA",
+          "store_frequency": 3
+        },
+        {
+          "name": "OMACHI MI BAP BO HAM DUA CHUA",
+          "store_frequency": 3
+        }
+      ]
+    },
+    {
+      "id": "afotech",
+      "name": "AFOTECH",
+      "skus": [
+        {
+          "name": "CUNG DINH BO HAM",
+          "store_frequency": 6
+        },
+        {
+          "name": "CUNG DINH PHO GA HN",
+          "store_frequency": 6
+        },
+        {
+          "name": "CUNG DINH LAU TCC",
+          "store_frequency": 5
+        },
+        {
+          "name": "CUNG DINH SUON HEO HAM MANG",
+          "store_frequency": 5
+        },
+        {
+          "name": "CUNG DINH PHO BO HN",
+          "store_frequency": 5
+        },
+        {
+          "name": "LY CUNG DINH BO HAM",
+          "store_frequency": 4
+        },
+        {
+          "name": "LY CUNG DINH GA HAM",
+          "store_frequency": 3
+        },
+        {
+          "name": "CUNG DINH KOOL SPAGHETTI",
+          "store_frequency": 1
+        },
+        {
+          "name": "LY CUNG DINH LAU TCC",
+          "store_frequency": 1
+        },
+        {
+          "name": "LY CUNG DINH PHO HN",
+          "store_frequency": 1
+        },
+        {
+          "name": "MICOEM MI GA NAM",
+          "store_frequency": 1
+        }
+      ]
+    },
+    {
+      "id": "vifon",
+      "name": "VIFON",
+      "skus": [
+        {
+          "name": "VIFON HU TIEU NAM VANG",
+          "store_frequency": 8
+        },
+        {
+          "name": "VIFON PHO BO",
+          "store_frequency": 7
+        },
+        {
+          "name": "VIFON BUN BO HUE",
+          "store_frequency": 6
+        },
+        {
+          "name": "VIFON BUN RIEU CUA",
+          "store_frequency": 6
+        },
+        {
+          "name": "VIFON PHO GA",
+          "store_frequency": 5
+        },
+        {
+          "name": "VIFON BANH DA CUA",
+          "store_frequency": 5
+        },
+        {
+          "name": "VIFON BUN GIO HEO",
+          "store_frequency": 4
+        },
+        {
+          "name": "VIFON NHAT VI TCC",
+          "store_frequency": 2
+        },
+        {
+          "name": "HOANG GIA MI",
+          "store_frequency": 1
+        }
+      ]
+    },
+    {
+      "id": "uniben",
+      "name": "UNIBEN",
+      "skus": [
+        {
+          "name": "3 MIEN MI BO SOI PHO",
+          "store_frequency": 4
+        },
+        {
+          "name": "3 MIEN MI TCC",
+          "store_frequency": 3
+        },
+        {
+          "name": "3 MIEN GOLD MI CC THAI",
+          "store_frequency": 2
+        },
+        {
+          "name": "3 MIEN GOLD MI BO HAM RAU THOM",
+          "store_frequency": 2
+        },
+        {
+          "name": "3 MIEN GOLD MI TCC",
+          "store_frequency": 1
+        }
+      ]
+    },
+    {
+      "id": "asiafood",
+      "name": "ASIAFOOD",
+      "skus": [
+        {
+          "name": "GAU DO TCC",
+          "store_frequency": 3
+        },
+        {
+          "name": "GAU DO TOM VA GA",
+          "store_frequency": 1
+        }
+      ]
+    },
+    {
+      "id": "mihamex",
+      "name": "MIHAMEX",
+      "skus": [
+        {
+          "name": "ZUM ZUM TCC",
+          "store_frequency": 2
+        },
+        {
+          "name": "ZUM ZUM BO XOT TIEU XANH",
+          "store_frequency": 1
+        }
+      ]
+    },
+    {
+      "id": "safoco",
+      "name": "SAFOCO",
+      "skus": [
+        {
+          "name": "MILIKET SATE",
+          "store_frequency": 2
+        },
+        {
+          "name": "MILIKET LAU THAI TOM",
+          "store_frequency": 1
+        },
+        {
+          "name": "MILIKET MI HAI TOM SATE",
+          "store_frequency": 1
+        },
+        {
+          "name": "MILIKET MI HAI TOM HAI SAN",
+          "store_frequency": 1
+        }
+      ]
+    }
+  ]
+}

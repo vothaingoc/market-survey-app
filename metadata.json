@@ -1,0 +1,6 @@
+{
+  "name": "Sổ tay Khảo sát Thị trường",
+  "description": "Ứng dụng ghi chép nhanh số liệu khảo sát thị trường tại cửa hàng dành cho nhân viên thị trường.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
