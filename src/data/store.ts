@@ -21,7 +21,6 @@ type JsonPhoto = {
   mimeType: string;
   size: number;
   type: 'product';
-  dataUrl?: string | null;
 };
 
 function isBlank(value: unknown): boolean {
@@ -111,7 +110,6 @@ function photoToExport(photo: string, observationId: string, index: number): Jso
     mimeType,
     size: getDataUrlSize(photo),
     type: 'product',
-    dataUrl: photo,
   };
 }
 
@@ -451,7 +449,28 @@ export const OfflineDB = {
     return JSON.stringify(exportObject, null, 2);
   },
 
-  importJSON(jsonText: string): { ok: boolean; imported: { surveys: number; stores: number; skus: number; observations: number }; errors: string[] } {
+  exportBackupPhotos(surveyIds?: string[]): { filename: string; mimeType: string; dataUrl: string }[] {
+    let surveys = this.getSurveys();
+    if (surveyIds && surveyIds.length > 0) {
+      surveys = surveys.filter(s => surveyIds.includes(s.id));
+    }
+    const surveyIdSet = new Set(surveys.map(s => s.id));
+    return this.getRecords()
+      .filter(record => surveyIdSet.has(record.surveyId))
+      .flatMap(record => {
+        const rawPhotos = record.photos && record.photos.length > 0 ? record.photos : (record.photo ? [record.photo] : []);
+        return rawPhotos.map((photo, index) => {
+          const exportedPhoto = photoToExport(photo, record.id, index);
+          return {
+            filename: exportedPhoto.filename,
+            mimeType: exportedPhoto.mimeType,
+            dataUrl: photo,
+          };
+        });
+      });
+  },
+
+  importJSON(jsonText: string, photoDataByFilename?: Record<string, string>): { ok: boolean; imported: { surveys: number; stores: number; skus: number; observations: number }; errors: string[] } {
     const errors: string[] = [];
     let parsed: any;
     try {
@@ -539,7 +558,7 @@ export const OfflineDB = {
       if (!observation.observationId || !observation.surveyId || !observation.skuId) return;
       const distribution = normalizeDistribution(observation.distributionType || observation.distributionLabel);
       const photos = Array.isArray(observation.photos)
-        ? observation.photos.map((photo: any) => photo?.dataUrl).filter((photo: unknown): photo is string => typeof photo === 'string' && photo.length > 0)
+        ? observation.photos.map((photo: any) => photoDataByFilename?.[photo?.filename]).filter((photo: unknown): photo is string => typeof photo === 'string' && photo.length > 0)
         : [];
       nextRecordsById.set(observation.observationId, {
         ...(nextRecordsById.get(observation.observationId) || {} as SurveyRecord),

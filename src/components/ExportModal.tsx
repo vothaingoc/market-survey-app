@@ -5,7 +5,8 @@
 
 import React, { useState } from 'react';
 import { OfflineDB } from '../data/store';
-import { FileSpreadsheet, Bot, X, Check, Share2 } from 'lucide-react';
+import { FileSpreadsheet, Bot, X, Check, Share2, Archive } from 'lucide-react';
+import { createZip, dataUrlToBytes, textToBytes } from '../utils/zip';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -100,6 +101,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     handleShareOrDownload(file);
   };
 
+  const handleExportBackup = () => {
+    const jsonContent = OfflineDB.exportJSON(selectedSurveyIds);
+    const validationErrors = getExportValidationErrors(jsonContent);
+    if (validationErrors.length > 0) {
+      window.alert(`Survey.json chua hop le: ${validationErrors.join('; ')}`);
+      return;
+    }
+
+    const backupPhotos = OfflineDB.exportBackupPhotos(selectedSurveyIds);
+    const zipBlob = createZip([
+      { path: 'Survey.json', data: textToBytes(jsonContent) },
+      ...backupPhotos.map(photo => ({
+        path: `photos/${photo.filename}`,
+        data: dataUrlToBytes(photo.dataUrl),
+      })),
+    ]);
+    const file = new File([zipBlob], 'Survey_backup.zip', { type: 'application/zip' });
+    handleShareOrDownload(file);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
       <div
@@ -165,6 +186,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </button>
 
           {/* Button 3: Hủy */}
+          <button
+            id="btn-export-backup"
+            onClick={handleExportBackup}
+            className="w-full text-left p-4 bg-blue-50/80 hover:bg-blue-100 active:bg-blue-200 border border-blue-200/80 rounded-xl flex items-start space-x-3.5 transition-all group"
+          >
+            <div className="p-2.5 bg-blue-600 text-white rounded-xl shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Archive className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 text-base">Sao luu day du</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                ZIP gom Survey.json va thu muc photos de khoi phuc du lieu
+              </div>
+            </div>
+          </button>
+
           <button
             id="btn-cancel-export"
             onClick={onClose}

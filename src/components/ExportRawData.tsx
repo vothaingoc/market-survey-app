@@ -5,8 +5,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { OfflineDB } from '../data/store';
-import { ArrowLeft, Copy, Check, Trash2, ShieldCheck, FileSpreadsheet, Bot, Share2, Upload } from 'lucide-react';
+import { ArrowLeft, Copy, Check, Trash2, ShieldCheck, FileSpreadsheet, Bot, Share2, Upload, Archive } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
+import { bytesToDataUrl, bytesToText, createZip, dataUrlToBytes, readZip, textToBytes } from '../utils/zip';
 
 interface ExportRawDataProps {
   onBack: () => void;
@@ -124,23 +125,71 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
     handleShareOrDownload(file);
   };
 
-  const handleImportJSON = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExportBackup = () => {
+    const validationErrors = getExportValidationErrors(jsonText);
+    if (validationErrors.length > 0) {
+      window.alert(`Survey.json chua hop le: ${validationErrors.join('; ')}`);
+      return;
+    }
+
+    const backupPhotos = OfflineDB.exportBackupPhotos(selectedSurveyIds);
+    const zipBlob = createZip([
+      { path: 'Survey.json', data: textToBytes(jsonText) },
+      ...backupPhotos.map(photo => ({
+        path: `photos/${photo.filename}`,
+        data: dataUrlToBytes(photo.dataUrl),
+      })),
+    ]);
+    const file = new File([zipBlob], 'Survey_backup.zip', { type: 'application/zip' });
+    handleShareOrDownload(file);
+  };
+
+  const handleImportBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const result = OfflineDB.importJSON(text);
+      let text = '';
+      const photoDataByFilename: Record<string, string> = {};
+
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        const files = await readZip(file);
+        const surveyJson = files.find(item => item.path === 'Survey.json');
+        if (!surveyJson) {
+          setImportMessage('Khong tim thay Survey.json trong file ZIP.');
+          return;
+        }
+        text = bytesToText(surveyJson.data);
+        const parsed = JSON.parse(text);
+        const photoMimeByFilename = new Map<string, string>();
+        parsed.observations?.forEach((observation: any) => {
+          observation.photos?.forEach((photo: any) => {
+            if (photo?.filename && photo?.mimeType) {
+              photoMimeByFilename.set(photo.filename, photo.mimeType);
+            }
+          });
+        });
+        files
+          .filter(item => item.path.startsWith('photos/'))
+          .forEach(item => {
+            const filename = item.path.replace(/^photos\//, '');
+            photoDataByFilename[filename] = bytesToDataUrl(item.data, photoMimeByFilename.get(filename) || 'application/octet-stream');
+          });
+      } else {
+        text = await file.text();
+      }
+
+      const result = OfflineDB.importJSON(text, photoDataByFilename);
       if (!result.ok) {
-        setImportMessage(`Khong import duoc Survey.json: ${result.errors.join('; ')}`);
+        setImportMessage(`Khong import duoc file sao luu: ${result.errors.join('; ')}`);
         return;
       }
-      setImportMessage(`Da import Survey.json: ${result.imported.surveys} dot, ${result.imported.stores} cua hang, ${result.imported.skus} SKU, ${result.imported.observations} ban ghi.`);
+      setImportMessage(`Da import: ${result.imported.surveys} dot, ${result.imported.stores} cua hang, ${result.imported.skus} SKU, ${result.imported.observations} ban ghi.`);
       onDataReset();
     } catch (error) {
-      console.error('Error importing Survey.json', error);
-      setImportMessage('Khong doc duoc file Survey.json. Vui long thu lai.');
+      console.error('Error importing backup', error);
+      setImportMessage('Khong doc duoc file sao luu. Vui long thu lai.');
     }
   };
 
@@ -239,19 +288,34 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
             <Share2 className="w-5 h-5 text-purple-600 shrink-0" />
           </button>
 
+          <button
+            id="btn-export-backup-page"
+            onClick={handleExportBackup}
+            className="w-full p-3.5 bg-blue-50 hover:bg-blue-100/80 active:bg-blue-200 border border-blue-200 rounded-xl flex items-center space-x-3 text-left transition-all"
+          >
+            <div className="p-2.5 bg-blue-600 text-white rounded-xl shrink-0">
+              <Archive className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 text-sm">Sao luu day du</div>
+              <div className="text-xs text-slate-500 mt-0.5">ZIP gom Survey.json va thu muc photos</div>
+            </div>
+            <Share2 className="w-5 h-5 text-blue-600 shrink-0" />
+          </button>
+
           <label className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl flex items-center space-x-3 text-left transition-all cursor-pointer">
             <div className="p-2.5 bg-slate-700 text-white rounded-xl shrink-0">
               <Upload className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-900 text-sm">Nhap lai Survey.json</div>
-              <div className="text-xs text-slate-500 mt-0.5">Khoi phuc du lieu tu file JSON da xuat</div>
+              <div className="font-bold text-slate-900 text-sm">Nhap file sao luu</div>
+              <div className="text-xs text-slate-500 mt-0.5">Nhan Survey_backup.zip de khoi phuc ca anh</div>
             </div>
             <input
               id="input-import-survey-json"
               type="file"
-              accept="application/json,.json"
-              onChange={handleImportJSON}
+              accept="application/zip,.zip,application/json,.json"
+              onChange={handleImportBackup}
               className="hidden"
             />
           </label>
