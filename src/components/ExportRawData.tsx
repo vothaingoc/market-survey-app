@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { OfflineDB } from '../data/store';
-import { ArrowLeft, Copy, Check, FileDown, Trash2, ShieldCheck, FileSpreadsheet, Bot, Share2 } from 'lucide-react';
+import { ArrowLeft, Copy, Check, Trash2, ShieldCheck, FileSpreadsheet, Bot, Share2, Upload } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 
 interface ExportRawDataProps {
@@ -18,6 +18,7 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
   const [copiedFormat, setCopiedFormat] = useState<'csv' | 'json' | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [previewTab, setPreviewTab] = useState<'json' | 'csv'>('json');
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   // Read sizes
   const stats = useMemo(() => {
@@ -91,6 +92,17 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
     }
   };
 
+  const getExportValidationErrors = (jsonContent: string): string[] => {
+    try {
+      const parsed = JSON.parse(jsonContent);
+      return parsed?.validation?.valid === false && Array.isArray(parsed.validation.errors)
+        ? parsed.validation.errors
+        : [];
+    } catch (error) {
+      return ['Khong kiem tra duoc Survey.json truoc khi xuat'];
+    }
+  };
+
   const handleExportExcel = () => {
     const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
     const file = new File([blob], `KHAO_SAT_THI_TRUONG_${new Date().toISOString().slice(0, 10)}.csv`, {
@@ -100,11 +112,36 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
   };
 
   const handleExportJSON = () => {
+    const validationErrors = getExportValidationErrors(jsonText);
+    if (validationErrors.length > 0) {
+      window.alert(`Survey.json chua hop le: ${validationErrors.join('; ')}`);
+      return;
+    }
     const blob = new Blob([jsonText], { type: 'application/json' });
-    const file = new File([blob], `KHAO_SAT_THI_TRUONG_AI_${new Date().toISOString().slice(0, 10)}.json`, {
+    const file = new File([blob], 'Survey.json', {
       type: 'application/json',
     });
     handleShareOrDownload(file);
+  };
+
+  const handleImportJSON = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const result = OfflineDB.importJSON(text);
+      if (!result.ok) {
+        setImportMessage(`Khong import duoc Survey.json: ${result.errors.join('; ')}`);
+        return;
+      }
+      setImportMessage(`Da import Survey.json: ${result.imported.surveys} dot, ${result.imported.stores} cua hang, ${result.imported.skus} SKU, ${result.imported.observations} ban ghi.`);
+      onDataReset();
+    } catch (error) {
+      console.error('Error importing Survey.json', error);
+      setImportMessage('Khong doc duoc file Survey.json. Vui long thu lai.');
+    }
   };
 
   const handleReset = () => {
@@ -201,6 +238,29 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
             </div>
             <Share2 className="w-5 h-5 text-purple-600 shrink-0" />
           </button>
+
+          <label className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl flex items-center space-x-3 text-left transition-all cursor-pointer">
+            <div className="p-2.5 bg-slate-700 text-white rounded-xl shrink-0">
+              <Upload className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 text-sm">Nhap lai Survey.json</div>
+              <div className="text-xs text-slate-500 mt-0.5">Khoi phuc du lieu tu file JSON da xuat</div>
+            </div>
+            <input
+              id="input-import-survey-json"
+              type="file"
+              accept="application/json,.json"
+              onChange={handleImportJSON}
+              className="hidden"
+            />
+          </label>
+
+          {importMessage && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-900 rounded-xl p-3 text-xs font-semibold">
+              {importMessage}
+            </div>
+          )}
 
           {/* Quick Copy buttons */}
           <div className="grid grid-cols-2 gap-2 pt-1">

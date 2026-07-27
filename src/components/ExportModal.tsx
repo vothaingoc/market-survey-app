@@ -65,6 +65,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
+  const getExportValidationErrors = (jsonContent: string): string[] => {
+    try {
+      const parsed = JSON.parse(jsonContent);
+      return parsed?.validation?.valid === false && Array.isArray(parsed.validation.errors)
+        ? parsed.validation.errors
+        : [];
+    } catch (error) {
+      return ['Khong kiem tra duoc Survey.json truoc khi xuat'];
+    }
+  };
+
   const handleExportExcel = () => {
     const csvContent = OfflineDB.exportCSV(selectedSurveyIds);
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -77,9 +88,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const handleExportJSON = () => {
     const jsonContent = OfflineDB.exportJSON(selectedSurveyIds);
-    const dateStr = new Date().toISOString().slice(0, 10);
+    const validationErrors = getExportValidationErrors(jsonContent);
+    if (validationErrors.length > 0) {
+      window.alert(`Survey.json chua hop le: ${validationErrors.join('; ')}`);
+      return;
+    }
     const blob = new Blob([jsonContent], { type: 'application/json' });
-    const file = new File([blob], `KHAO_SAT_THI_TRUONG_AI_${dateStr}.json`, {
+    const file = new File([blob], 'Survey.json', {
       type: 'application/json',
     });
     handleShareOrDownload(file);

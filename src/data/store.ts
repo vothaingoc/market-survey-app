@@ -6,6 +6,124 @@
 import { Store, SKU, Survey, SurveyRecord, DistributionType } from '../types';
 import { INITIAL_STORES, INITIAL_SKUS } from './masterData';
 
+const SCHEMA_VERSION = '1.0';
+
+type NormalizedDistribution = 'official' | 'parallel' | 'unknown';
+
+const OFFICIAL_DISTRIBUTION = '\u0043h\u00ednh ng\u1ea1ch' as DistributionType;
+const PARALLEL_DISTRIBUTION = 'Ti\u1ec3u ng\u1ea1ch' as DistributionType;
+const UNKNOWN_DISTRIBUTION = 'Kh\u00f4ng r\u00f5' as DistributionType;
+const DEFAULT_SURVEY_STATUS = '\u0111ang th\u1ef1c hi\u1ec7n' as Survey['status'];
+
+type JsonPhoto = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  type: 'product';
+  dataUrl?: string | null;
+};
+
+function isBlank(value: unknown): boolean {
+  return value === null || value === undefined || value === '';
+}
+
+function normalizeText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function parseGps(value: string | null | undefined): { lat: number; lng: number } | null {
+  if (!value) return null;
+  const parts = value.split(',').map(part => Number(part.trim()));
+  if (parts.length !== 2 || parts.some(Number.isNaN)) return null;
+  const [lat, lng] = parts;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+
+function stringifyGps(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const gps = value as { lat?: unknown; lng?: unknown };
+  const lat = Number(gps.lat);
+  const lng = Number(gps.lng);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return '';
+  return `${lat}, ${lng}`;
+}
+
+function normalizeIsoDate(value: unknown): string | null {
+  if (isBlank(value)) return null;
+  const raw = String(value).trim();
+  const datePart = raw.split(/[ T]/)[0];
+  const match = datePart.match(/^(\d{4})[-/](\d{1,2})(?:[-/](\d{1,2}))?$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  let month = Number(match[2]);
+  let day = match[3] ? Number(match[3]) : 1;
+
+  if (month > 12 && day >= 1 && day <= 12) {
+    const originalMonth = month;
+    month = day;
+    day = originalMonth;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+
+  const pad = (num: number) => String(num).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+function toUiDate(value: unknown): string {
+  const iso = normalizeIsoDate(value);
+  return iso ? iso.replace(/-/g, '/') : '';
+}
+
+function normalizeDistribution(value: unknown): { value: NormalizedDistribution; label: string; legacy: DistributionType } {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('official') || raw.includes('ch') || raw.includes('ngach')) {
+    return { value: 'official', label: '\u0043h\u00ednh ng\u1ea1ch', legacy: OFFICIAL_DISTRIBUTION };
+  }
+  if (raw.includes('parallel') || raw.includes('tieu')) {
+    return { value: 'parallel', label: 'Ti\u1ec3u ng\u1ea1ch', legacy: PARALLEL_DISTRIBUTION };
+  }
+  return { value: 'unknown', label: 'Kh\u00f4ng r\u00f5', legacy: UNKNOWN_DISTRIBUTION };
+}
+
+function getPhotoMimeType(dataUrl: string): string {
+  const match = dataUrl.match(/^data:([^;]+);/);
+  return match ? match[1] : 'application/octet-stream';
+}
+
+function getDataUrlSize(dataUrl: string): number {
+  const payload = dataUrl.split(',')[1] || '';
+  return Math.ceil((payload.length * 3) / 4);
+}
+
+function photoToExport(photo: string, observationId: string, index: number): JsonPhoto {
+  const mimeType = getPhotoMimeType(photo);
+  const extension = mimeType.split('/')[1] || 'jpg';
+  return {
+    id: `${observationId}_photo_${index + 1}`,
+    filename: `${observationId}_photo_${index + 1}.${extension}`,
+    mimeType,
+    size: getDataUrlSize(photo),
+    type: 'product',
+    dataUrl: photo,
+  };
+}
+
+function validateUniqueIds(label: string, ids: string[], errors: string[]): void {
+  const seen = new Set<string>();
+  ids.forEach(id => {
+    if (!id) errors.push(`Missing ${label} id`);
+    if (seen.has(id)) errors.push(`Duplicate ${label} id: ${id}`);
+    seen.add(id);
+  });
+}
+
 // Helper to get from localstorage with fallback
 function getLocal<T>(key: string, fallback: T): T {
   try {
@@ -221,63 +339,242 @@ export const OfflineDB = {
     return BOM + csvContent;
   },
 
-  // Fast Export - Generates structured JSON text for AI analysis (ChatGPT / Gemini / Claude)
+  // Fast Export - Generates structured JSON text for AI analysis and re-import
   exportJSON(surveyIds?: string[]): string {
     let surveys = this.getSurveys();
     if (surveyIds && surveyIds.length > 0) {
       surveys = surveys.filter(s => surveyIds.includes(s.id));
     }
-    const stores = this.getStores();
-    const skus = this.getSKUs();
-    const allRecords = this.getRecords();
 
-    const storeMap = new Map<string, Store>(stores.map(s => [s.id, s]));
-    const skuMap = new Map<string, SKU>(skus.map(s => [s.id, s]));
+    const surveyIdSet = new Set(surveys.map(s => s.id));
+    const allRecords = this.getRecords().filter(r => surveyIdSet.has(r.surveyId));
+    const allStores = this.getStores();
+    const allSkus = this.getSKUs();
 
-    const exportedAt = new Date().toISOString();
+    const storeMap = new Map<string, Store>(allStores.map(s => [s.id, s]));
+    const skuMap = new Map<string, SKU>(allSkus.map(s => [s.id, s]));
+    const surveyMap = new Map<string, Survey>(surveys.map(s => [s.id, s]));
+    const manufacturerNames: string[] = Array.from(new Set<string>(allSkus.map(sku => sku.manufacturer).filter((name): name is string => typeof name === 'string' && name.length > 0))).sort();
+    const manufacturerIdMap = new Map<string, string>(manufacturerNames.map((name): [string, string] => [name, name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unknown']));
 
-    const storeEntries = surveys.map(survey => {
+    const errors: string[] = [];
+    validateUniqueIds('survey', surveys.map(s => s.id), errors);
+    validateUniqueIds('observation', allRecords.map(r => r.id), errors);
+    validateUniqueIds('store', allStores.map(s => s.id), errors);
+    validateUniqueIds('sku', allSkus.map(s => s.id), errors);
+
+    const neededStoreIds = new Set(surveys.map(s => s.storeId));
+    const neededSkuIds = new Set(allRecords.map(r => r.skuId));
+    const stores = allStores.filter(store => neededStoreIds.has(store.id));
+    const skus = allSkus.filter(sku => neededSkuIds.has(sku.id));
+
+    const surveySummaries = surveys.map(survey => {
+      const surveyDate = normalizeIsoDate(survey.date);
+      if (!surveyDate && survey.date) errors.push(`Invalid survey date for ${survey.id}: ${survey.date}`);
       const store = storeMap.get(survey.storeId);
-      const records = allRecords.filter(r => r.surveyId === survey.id);
-
-      let surveyDateStr = survey.date || '';
-      if (survey.date) {
-        const datePart = survey.date.split(' ')[0];
-        surveyDateStr = datePart.replace(/\//g, '-');
-      }
-
-      const products = records.map(r => {
-        const sku = skuMap.get(r.skuId);
-        return {
-          manufacturer: sku?.manufacturer || 'Không rõ',
-          sku: sku?.name || 'SKU không xác định',
-          distributionType: r.type,
-          priceSingle: r.price1 !== null && r.price1 !== undefined ? Number(r.price1) : null,
-          priceFivePack: r.price5 !== null && r.price5 !== undefined ? Number(r.price5) : null,
-          priceCarton: r.priceCarton !== null && r.priceCarton !== undefined ? Number(r.priceCarton) : null,
-          expirationDate: r.expiryDate || '',
-          factoryCode: r.factoryCode || null,
-          faceCount: r.facing || 0,
-          photoCount: r.photos && r.photos.length > 0 ? r.photos.length : (r.photo ? 1 : 0),
-        };
-      });
-
       return {
-        storeName: store?.name || 'Cửa hàng không xác định',
-        address: store?.address || '',
-        surveyDate: surveyDateStr,
-        products,
+        surveyId: survey.id,
+        surveyName: store ? `${store.name} - ${surveyDate || survey.date || 'No date'}` : survey.id,
+        surveyDate,
+        surveyor: null,
+        storeId: survey.storeId,
+        storeName: store?.name || null,
+        status: survey.status || null,
       };
     });
 
-    const jsonObj = {
-      survey: {
-        exportedAt,
-        stores: storeEntries,
+    const observations = allRecords.map(record => {
+      const sku = skuMap.get(record.skuId);
+      const survey = surveyMap.get(record.surveyId);
+      const store = survey ? storeMap.get(survey.storeId) : undefined;
+      const distribution = normalizeDistribution(record.type);
+      const expirationDate = normalizeIsoDate(record.expiryDate);
+      if (!expirationDate && record.expiryDate) errors.push(`Invalid expiration date for ${record.id}: ${record.expiryDate}`);
+      const rawPhotos = record.photos && record.photos.length > 0 ? record.photos : (record.photo ? [record.photo] : []);
+
+      return {
+        observationId: record.id,
+        surveyId: record.surveyId,
+        storeId: survey?.storeId || null,
+        storeName: store?.name || null,
+        manufacturerId: sku ? manufacturerIdMap.get(sku.manufacturer) || null : null,
+        manufacturerName: sku?.manufacturer || null,
+        skuId: record.skuId,
+        skuName: sku?.name || null,
+        distributionType: distribution.value,
+        distributionLabel: distribution.label,
+        priceSingle: record.price1 ?? null,
+        priceFivePack: record.price5 ?? null,
+        priceCarton: record.priceCarton ?? null,
+        expirationDate,
+        factoryCode: normalizeText(record.factoryCode),
+        faceCount: record.facing ?? null,
+        notes: null,
+        photos: rawPhotos.map((photo, index) => photoToExport(photo, record.id, index)),
+      };
+    });
+
+    const exportObject = {
+      schemaVersion: SCHEMA_VERSION,
+      surveyInfo: {
+        surveyId: surveys.length === 1 ? surveys[0].id : null,
+        surveyName: surveys.length === 1 ? surveySummaries[0]?.surveyName || null : null,
+        surveyDate: surveys.length === 1 ? surveySummaries[0]?.surveyDate || null : null,
+        surveyor: null,
+        exportedAt: new Date().toISOString(),
+        schemaVersion: SCHEMA_VERSION,
+        surveys: surveySummaries,
+      },
+      stores: stores.map(store => ({
+        storeId: store.id,
+        storeName: store.name || null,
+        address: store.address || null,
+        gps: parseGps(store.gps),
+      })),
+      manufacturerMaster: manufacturerNames.map(name => ({
+        manufacturerId: manufacturerIdMap.get(name) || null,
+        manufacturerName: name,
+      })),
+      skuMaster: skus.map(sku => ({
+        skuId: sku.id,
+        skuName: sku.name || null,
+        manufacturerId: manufacturerIdMap.get(sku.manufacturer) || null,
+        manufacturerName: sku.manufacturer || null,
+      })),
+      observations,
+      validation: {
+        valid: errors.length === 0,
+        errors,
       },
     };
 
-    return JSON.stringify(jsonObj, null, 2);
+    return JSON.stringify(exportObject, null, 2);
+  },
+
+  importJSON(jsonText: string): { ok: boolean; imported: { surveys: number; stores: number; skus: number; observations: number }; errors: string[] } {
+    const errors: string[] = [];
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (error) {
+      return { ok: false, imported: { surveys: 0, stores: 0, skus: 0, observations: 0 }, errors: ['Invalid JSON file'] };
+    }
+
+    if (!parsed || parsed.schemaVersion !== SCHEMA_VERSION || !Array.isArray(parsed.observations)) {
+      return { ok: false, imported: { surveys: 0, stores: 0, skus: 0, observations: 0 }, errors: ['Unsupported Survey.json schema'] };
+    }
+
+    validateUniqueIds('store', (parsed.stores || []).map((store: any) => store.storeId), errors);
+    validateUniqueIds('sku', (parsed.skuMaster || []).map((sku: any) => sku.skuId), errors);
+    validateUniqueIds('observation', parsed.observations.map((observation: any) => observation.observationId), errors);
+    if (errors.length > 0) {
+      return { ok: false, imported: { surveys: 0, stores: 0, skus: 0, observations: 0 }, errors };
+    }
+
+    const currentStores = this.getStores();
+    const currentSkus = this.getSKUs();
+    const currentSurveys = this.getSurveys();
+    const currentRecords = this.getRecords();
+
+    const nextStoresById = new Map<string, Store>(currentStores.map(store => [store.id, store]));
+    (parsed.stores || []).forEach((store: any) => {
+      if (!store.storeId) return;
+      nextStoresById.set(store.storeId, {
+        ...(nextStoresById.get(store.storeId) || {} as Store),
+        id: store.storeId,
+        name: store.storeName || '',
+        address: store.address || '',
+        gps: stringifyGps(store.gps),
+      });
+    });
+
+    const nextSkusById = new Map<string, SKU>(currentSkus.map(sku => [sku.id, sku]));
+    (parsed.skuMaster || []).forEach((sku: any) => {
+      if (!sku.skuId) return;
+      nextSkusById.set(sku.skuId, {
+        ...(nextSkusById.get(sku.skuId) || {} as SKU),
+        id: sku.skuId,
+        name: sku.skuName || '',
+        manufacturer: sku.manufacturerName || '',
+      });
+    });
+
+    const surveyInfoList = Array.isArray(parsed.surveyInfo?.surveys) ? parsed.surveyInfo.surveys : [];
+    const surveyStoreById = new Map<string, string>();
+    surveyInfoList.forEach((survey: any) => {
+      if (survey.surveyId && survey.storeId) surveyStoreById.set(survey.surveyId, survey.storeId);
+    });
+    parsed.observations.forEach((observation: any) => {
+      if (observation.surveyId && observation.storeId && !surveyStoreById.has(observation.surveyId)) {
+        surveyStoreById.set(observation.surveyId, observation.storeId);
+      }
+    });
+
+    const nextSurveysById = new Map<string, Survey>(currentSurveys.map(survey => [survey.id, survey]));
+    surveyInfoList.forEach((survey: any) => {
+      if (!survey.surveyId) return;
+      const date = toUiDate(survey.surveyDate);
+      nextSurveysById.set(survey.surveyId, {
+        ...(nextSurveysById.get(survey.surveyId) || {} as Survey),
+        id: survey.surveyId,
+        storeId: survey.storeId || surveyStoreById.get(survey.surveyId) || '',
+        date,
+        status: (survey.status || nextSurveysById.get(survey.surveyId)?.status || currentSurveys[0]?.status || DEFAULT_SURVEY_STATUS) as Survey['status'],
+      });
+    });
+
+    surveyStoreById.forEach((storeId, surveyId) => {
+      if (!nextSurveysById.has(surveyId)) {
+        nextSurveysById.set(surveyId, {
+          id: surveyId,
+          storeId,
+          date: '',
+          status: currentSurveys[0]?.status || DEFAULT_SURVEY_STATUS,
+        });
+      }
+    });
+
+    const nextRecordsById = new Map<string, SurveyRecord>(currentRecords.map(record => [record.id, record]));
+    parsed.observations.forEach((observation: any) => {
+      if (!observation.observationId || !observation.surveyId || !observation.skuId) return;
+      const distribution = normalizeDistribution(observation.distributionType || observation.distributionLabel);
+      const photos = Array.isArray(observation.photos)
+        ? observation.photos.map((photo: any) => photo?.dataUrl).filter((photo: unknown): photo is string => typeof photo === 'string' && photo.length > 0)
+        : [];
+      nextRecordsById.set(observation.observationId, {
+        ...(nextRecordsById.get(observation.observationId) || {} as SurveyRecord),
+        id: observation.observationId,
+        surveyId: observation.surveyId,
+        skuId: observation.skuId,
+        type: distribution.legacy,
+        price1: observation.priceSingle ?? null,
+        price5: observation.priceFivePack ?? null,
+        priceCarton: observation.priceCarton ?? null,
+        expiryDate: toUiDate(observation.expirationDate),
+        factoryCode: normalizeText(observation.factoryCode),
+        facing: observation.faceCount ?? 1,
+        photo: null,
+        photos,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    const savedStores = setLocal('survey_stores', Array.from(nextStoresById.values()));
+    const savedSkus = setLocal('survey_skus', Array.from(nextSkusById.values()));
+    const savedSurveys = setLocal('survey_list', Array.from(nextSurveysById.values()));
+    const savedRecords = setLocal('survey_records', Array.from(nextRecordsById.values()));
+    const ok = savedStores && savedSkus && savedSurveys && savedRecords;
+
+    return {
+      ok,
+      imported: {
+        surveys: surveyInfoList.length || surveyStoreById.size,
+        stores: (parsed.stores || []).length,
+        skus: (parsed.skuMaster || []).length,
+        observations: parsed.observations.length,
+      },
+      errors: ok ? [] : ['Could not save imported data to browser storage'],
+    };
   },
 
   // Reset entire DB for testing
