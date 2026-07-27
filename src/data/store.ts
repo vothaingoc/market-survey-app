@@ -125,12 +125,25 @@ export const OfflineDB = {
   },
 
   saveRecord(record: SurveyRecord): boolean {
-    const records = this.getRecords();
-    const index = records.findIndex(r => r.id === record.id);
+    const photos = record.photos && record.photos.length > 0
+      ? record.photos
+      : (record.photo ? [record.photo] : []);
+    const normalizedRecord: SurveyRecord = {
+      ...record,
+      photo: photos.length > 0 ? null : record.photo,
+      photos,
+    };
+    const records = this.getRecords().map(r => {
+      if (r.photos && r.photos.length > 0 && r.photo) {
+        return { ...r, photo: null };
+      }
+      return r;
+    });
+    const index = records.findIndex(r => r.id === normalizedRecord.id);
     if (index >= 0) {
-      records[index] = record;
+      records[index] = normalizedRecord;
     } else {
-      records.unshift(record); // Add newest first so it's recorded in shelf order
+      records.unshift(normalizedRecord); // Add newest first so it's recorded in shelf order
     }
     return setLocal('survey_records', records);
   },

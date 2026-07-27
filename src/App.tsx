@@ -212,7 +212,7 @@ export default function App() {
     };
     const saved = OfflineDB.saveRecord(newRecord);
     if (!saved) {
-      window.alert('Bo nho tren thiet bi da day. Vui long xoa bot du lieu hoac anh cu roi thu lai.');
+      window.alert('Khong the luu anh vao bo nho cua trinh duyet. Anh da duoc nen, vui long thu lai hoac xoa bot anh/du lieu cu neu van bi lap lai.');
       return false;
     }
     refreshData();

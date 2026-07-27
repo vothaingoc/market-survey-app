@@ -144,24 +144,33 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   };
 
   // Photo handlers
+  const optimizePhotoDataUrl = (source: string): Promise<string> => new Promise((resolve, reject) => {
+    if (source.startsWith('data:image/svg+xml')) {
+      resolve(source);
+      return;
+    }
+
+    const image = new Image();
+    image.onerror = () => reject(new Error('Khong the doc anh'));
+    image.onload = () => {
+      const maxSide = 1000;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return reject(new Error('Khong the xu ly anh'));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.6));
+    };
+    image.src = source;
+  });
+
   const optimizePhoto = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
     reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error('Khong the doc anh'));
-      image.onload = () => {
-        const maxSide = 1600;
-        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext('2d');
-        if (!context) return reject(new Error('Khong the xu ly anh'));
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.72));
-      };
-      image.src = reader.result as string;
+      optimizePhotoDataUrl(reader.result as string).then(resolve).catch(reject);
     };
     reader.readAsDataURL(file);
   });
@@ -195,7 +204,10 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleFormSubmit = (continueSameSku: boolean) => {
+  const handleFormSubmit = async (continueSameSku: boolean) => {
+    if (isProcessingPhotos) return;
+    setIsProcessingPhotos(true);
+
     // Determine final expiry format
     let finalExpiry = '';
     if (expiryRaw.length === 4) {
@@ -203,34 +215,42 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     } else if (expiryRaw.length === 6) {
       finalExpiry = `20${expiryRaw.substring(0, 2)}/${expiryRaw.substring(2, 4)}/${expiryRaw.substring(4, 6)}`;
     } else {
-      finalExpiry = expiryRaw || 'Không rõ HSD';
+      finalExpiry = expiryRaw || 'Khong ro HSD';
     }
 
-    const saved = onSave({
-      id: initialRecord?.id,
-      surveyId,
-      skuId: sku.id,
-      type,
-      price1: price1 ? Number(price1) : null,
-      price5: price5 ? Number(price5) : null,
-      priceCarton: priceCarton ? Number(priceCarton) : null,
-      expiryDate: finalExpiry,
-      factoryCode: isACV ? (factoryCode || null) : null,
-      facing,
-      photo: photos.length > 0 ? photos[0] : null,
-      photos: photos,
-    }, continueSameSku);
+    try {
+      const optimizedPhotos = await Promise.all(photos.map(optimizePhotoDataUrl));
+      const saved = onSave({
+        id: initialRecord?.id,
+        surveyId,
+        skuId: sku.id,
+        type,
+        price1: price1 ? Number(price1) : null,
+        price5: price5 ? Number(price5) : null,
+        priceCarton: priceCarton ? Number(priceCarton) : null,
+        expiryDate: finalExpiry,
+        factoryCode: isACV ? (factoryCode || null) : null,
+        facing,
+        photo: null,
+        photos: optimizedPhotos,
+      }, continueSameSku);
 
-    if (saved && continueSameSku) {
-      // Clear specific fields as requested by "Save & Nhập lại SKU này"
-      setType('Chính ngạch');
-      setPrice1('');
-      setPrice5('');
-      setPriceCarton('');
-      setExpiryRaw('');
-      setFactoryCode('');
-      setFacing(1);
-      setPhotos([]);
+      if (saved && continueSameSku) {
+        // Clear specific fields as requested by Save & re-enter this SKU
+        setType('Chính ngạch');
+        setPrice1('');
+        setPrice5('');
+        setPriceCarton('');
+        setExpiryRaw('');
+        setFactoryCode('');
+        setFacing(1);
+        setPhotos([]);
+      }
+    } catch (error) {
+      console.error('Error optimizing photos before save', error);
+      window.alert('Khong the toi uu anh truoc khi luu. Vui long thu lai.');
+    } finally {
+      setIsProcessingPhotos(false);
     }
   };
 
