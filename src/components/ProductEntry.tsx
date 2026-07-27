@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SKU, DistributionType, SurveyRecord } from '../types';
 import { OfflineDB } from '../data/store';
-import { ArrowLeft, Plus, Minus, Camera, Save, RefreshCw, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Camera, Save, RefreshCw, X, AlertCircle, ZoomIn } from 'lucide-react';
 
 const ACV_FACTORY_CODES = ['SG 1', 'SG 2', 'BD', 'HY', 'VL', 'DN', 'NV', 'BN', 'HV'];
 
@@ -14,7 +14,7 @@ interface ProductEntryProps {
   sku: SKU;
   surveyId: string;
   initialRecord?: SurveyRecord | null; // if editing
-  onSave: (record: Omit<SurveyRecord, 'id' | 'timestamp'> & { id?: string }, continueSameSku: boolean) => void;
+  onSave: (record: Omit<SurveyRecord, 'id' | 'timestamp'> & { id?: string }, continueSameSku: boolean) => boolean;
   onCancel: () => void;
 }
 
@@ -33,6 +33,8 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   const [factoryCode, setFactoryCode] = useState<string>('');
   const [facing, setFacing] = useState<number>(1);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [isProcessingPhotos, setIsProcessingPhotos] = useState(false);
 
   const isACV = useMemo(() => {
     return sku.manufacturer?.trim().toUpperCase() === 'ACV';
@@ -142,27 +144,43 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   };
 
   // Photo handlers
-  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const optimizePhoto = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('Khong the doc anh'));
+      image.onload = () => {
+        const maxSide = 1600;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) return reject(new Error('Khong the xu ly anh'));
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      image.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       const fileArray = Array.from(files);
-      let loadedCount = 0;
-      const newPhotoList: string[] = [];
-
-      fileArray.forEach((file: File) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (reader.result) {
-            newPhotoList.push(reader.result as string);
-          }
-          loadedCount++;
-          if (loadedCount === fileArray.length) {
-            setPhotos(prev => [...prev, ...newPhotoList]);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
       e.target.value = '';
+      setIsProcessingPhotos(true);
+      try {
+        const newPhotoList = await Promise.all(fileArray.map(optimizePhoto));
+        setPhotos(prev => [...prev, ...newPhotoList]);
+      } catch (error) {
+        console.error('Error processing photos', error);
+        window.alert('Khong the xu ly anh vua chon. Vui long chup lai.');
+      } finally {
+        setIsProcessingPhotos(false);
+      }
     }
   };
 
@@ -188,7 +206,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       finalExpiry = expiryRaw || 'Không rõ HSD';
     }
 
-    onSave({
+    const saved = onSave({
       id: initialRecord?.id,
       surveyId,
       skuId: sku.id,
@@ -203,7 +221,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       photos: photos,
     }, continueSameSku);
 
-    if (continueSameSku) {
+    if (saved && continueSameSku) {
       // Clear specific fields as requested by "Save & Nhập lại SKU này"
       setType('Chính ngạch');
       setPrice1('');
@@ -515,12 +533,20 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
               <div className="flex items-center space-x-2 overflow-x-auto pb-1 pt-1">
                 {photos.map((pUrl, idx) => (
                   <div key={idx} className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPhoto(pUrl)}
+                      className="block w-full h-full cursor-zoom-in"
+                      aria-label={`Xem anh ${idx + 1}`}
+                    >
                     <img
                       src={pUrl}
                       alt={`Ảnh ${idx + 1}`}
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
                     />
+                    <ZoomIn className="absolute bottom-1 right-1 w-4 h-4 text-white drop-shadow-md" />
+                    </button>
                     <span className="absolute bottom-1 left-1 bg-slate-900/80 text-white font-mono text-[9px] px-1 py-0.2 rounded font-bold">
                       #{idx + 1}
                     </span>
@@ -551,6 +577,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
                   multiple
                   onChange={handlePhotoFileChange}
                   className="hidden"
+                  disabled={isProcessingPhotos}
                 />
               </label>
 
@@ -581,6 +608,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
           id="btn-save-re-enter"
           type="button"
           onClick={() => handleFormSubmit(true)}
+          disabled={isProcessingPhotos}
           className="h-14 border-2 border-slate-900 hover:bg-slate-50 active:bg-slate-100 text-slate-900 font-extrabold rounded-xl text-xs uppercase tracking-wide flex flex-col items-center justify-center leading-none"
         >
           <span className="flex items-center space-x-1 mb-0.5 font-bold">
@@ -595,12 +623,22 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
           id="btn-save-finish"
           type="button"
           onClick={() => handleFormSubmit(false)}
+          disabled={isProcessingPhotos}
           className="h-14 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold rounded-xl text-sm uppercase tracking-wide flex items-center justify-center space-x-1.5 shadow-lg active:scale-[0.98] transition-all"
         >
           <Save className="w-5 h-5" />
           <span>{initialRecord ? 'Cập Nhật & Trở Về' : 'Lưu & Trở Về'}</span>
         </button>
       </div>
+
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Xem anh da chup" onClick={() => setPreviewPhoto(null)}>
+          <img src={previewPhoto} alt="Anh da chup phong lon" className="max-w-full max-h-full object-contain rounded-lg" onClick={(event) => event.stopPropagation()} />
+          <button type="button" onClick={() => setPreviewPhoto(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/15 text-white" aria-label="Dong anh">
+            <X className="w-7 h-7" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

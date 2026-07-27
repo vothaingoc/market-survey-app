@@ -210,7 +210,11 @@ export default function App() {
       id: recordData.id || `record_${Date.now()}`,
       timestamp: formatCurrentTime(),
     };
-    OfflineDB.saveRecord(newRecord);
+    const saved = OfflineDB.saveRecord(newRecord);
+    if (!saved) {
+      window.alert('Bo nho tren thiet bi da day. Vui long xoa bot du lieu hoac anh cu roi thu lai.');
+      return false;
+    }
     refreshData();
     setEditingRecord(null);
 
@@ -218,6 +222,7 @@ export default function App() {
       // Return to entered products list if we were editing, otherwise back to product selection
       setScreen(wasEditing ? 'entered-products' : 'product-selection');
     }
+    return true;
   };
 
   // Deleting a recorded item inside a survey

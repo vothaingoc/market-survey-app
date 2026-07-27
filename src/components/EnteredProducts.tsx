@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { SurveyRecord, SKU, Store, Survey } from '../types';
-import { ArrowLeft, Trash2, ShieldCheck, ShoppingBag, Plus, Edit3 } from 'lucide-react';
+import { ArrowLeft, Trash2, ShieldCheck, ShoppingBag, Plus, Edit3, X } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 
 interface EnteredProductsProps {
@@ -32,6 +32,7 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
   onBack,
 }) => {
   const [deleteRecordId, setDeleteRecordId] = React.useState<string | null>(null);
+  const [previewPhoto, setPreviewPhoto] = React.useState<string | null>(null);
   const skuMap = React.useMemo(() => new Map(skus.map(s => [s.id, s])), [skus]);
 
   // Filter records belonging to the active survey
@@ -191,13 +192,15 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
                       </div>
                       <div className="flex items-center space-x-1.5 overflow-x-auto pt-0.5 pb-0.5">
                         {(record.photos && record.photos.length > 0 ? record.photos : [record.photo!]).map((pUrl, pIdx) => (
-                          <img
+                          <button
                             key={pIdx}
-                            src={pUrl}
-                            alt={`Ảnh ${pIdx + 1}`}
-                            className="w-9 h-9 rounded-md object-cover border border-slate-200 shrink-0 shadow-xs"
-                            referrerPolicy="no-referrer"
-                          />
+                            type="button"
+                            onClick={() => setPreviewPhoto(pUrl)}
+                            className="w-9 h-9 rounded-md overflow-hidden border border-slate-200 shrink-0 shadow-xs cursor-zoom-in"
+                            aria-label={`Xem anh ${pIdx + 1}`}
+                          >
+                            <img src={pUrl} alt={`Anh ${pIdx + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -250,6 +253,15 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
         onCancel={() => setDeleteRecordId(null)}
         idPrefix="delete-record-modal"
       />
+
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Xem anh da chup" onClick={() => setPreviewPhoto(null)}>
+          <img src={previewPhoto} alt="Anh da chup phong lon" className="max-w-full max-h-full object-contain rounded-lg" onClick={(event) => event.stopPropagation()} />
+          <button type="button" onClick={() => setPreviewPhoto(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/15 text-white" aria-label="Dong anh">
+            <X className="w-7 h-7" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

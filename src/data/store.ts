@@ -18,11 +18,13 @@ function getLocal<T>(key: string, fallback: T): T {
 }
 
 // Helper to set localstorage
-function setLocal<T>(key: string, value: T): void {
+function setLocal<T>(key: string, value: T): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch (e) {
     console.error(`Error writing ${key} to localStorage`, e);
+    return false;
   }
 }
 
@@ -122,7 +124,7 @@ export const OfflineDB = {
     return this.getRecords().filter(r => r.surveyId === surveyId);
   },
 
-  saveRecord(record: SurveyRecord): void {
+  saveRecord(record: SurveyRecord): boolean {
     const records = this.getRecords();
     const index = records.findIndex(r => r.id === record.id);
     if (index >= 0) {
@@ -130,7 +132,7 @@ export const OfflineDB = {
     } else {
       records.unshift(record); // Add newest first so it's recorded in shelf order
     }
-    setLocal('survey_records', records);
+    return setLocal('survey_records', records);
   },
 
   deleteRecord(id: string): void {
