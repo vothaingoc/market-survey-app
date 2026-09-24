@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { Store } from '../types';
-import { Camera, MapPin, Navigation, Save, X, RotateCcw } from 'lucide-react';
+import { Camera, MapPin, Navigation, Save, X } from 'lucide-react';
 
 interface StoreFormProps {
   initialStore?: Store | null;
@@ -19,76 +19,37 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
   const [gps, setGps] = useState(initialStore?.gps || '');
   const [photo, setPhoto] = useState<string | null>(initialStore?.photo || null);
   const [isCapturingGps, setIsCapturingGps] = useState(false);
-  const [gpsSource, setGpsSource] = useState<'simulated' | 'real' | null>(initialStore?.gps ? 'real' : null);
+  const [gpsError, setGpsError] = useState('');
 
-  // Suggest Vietnamese addresses for extremely rapid store registration
-  const VN_ADDRESS_SUGGESTIONS = [
-    '180 Cao Lỗ, Phường 4, Quận 8, TP. HCM',
-    '342 Nguyễn Thị Minh Khai, Phường 5, Quận 3, TP. HCM',
-    '101 Tôn Dật Tiên, Phường Tân Phong, Quận 7, TP. HCM',
-    '87 Láng Hạ, Phường Thành Công, Quận Ba Đình, Hà Nội',
-    '52 Lê Duẩn, Phường Hải Châu I, Quận Hải Châu, Đà Nẵng'
-  ];
-
-  // Auto-fill random Vietnamese retail shop name
-  const STORE_NAME_SUGGESTIONS = [
-    'Tạp Hóa Cô Hoa',
-    'WinMart+ Hoàng Diệu',
-    'Bách Hóa Xanh Phạm Hùng',
-    'Tạp Hóa Minh Phát',
-    'Co.op Food Lý Thường Kiệt'
-  ];
-
-  const handleQuickFill = () => {
-    const randomIdx = Math.floor(Math.random() * VN_ADDRESS_SUGGESTIONS.length);
-    setName(STORE_NAME_SUGGESTIONS[randomIdx]);
-    setAddress(VN_ADDRESS_SUGGESTIONS[randomIdx]);
-    // Simulate GPS near matching city centers
-    const lats = [10.7431, 10.7725, 10.7291, 21.0189, 16.0713];
-    const lngs = [106.6789, 106.6852, 106.7214, 105.8192, 108.2208];
-    setGps(`${lats[randomIdx].toFixed(4)}, ${lngs[randomIdx].toFixed(4)}`);
-    setGpsSource('simulated');
-  };
-
-  // Capture GPS using browser geolocation or fallback
+  // Read the device's actual location. Never substitute simulated coordinates.
   const handleGetGps = () => {
-    setIsCapturingGps(true);
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude.toFixed(6);
-          const lng = position.coords.longitude.toFixed(6);
-          setGps(`${lat}, ${lng}`);
-          setGpsSource('real');
-          setIsCapturingGps(false);
-          // Suggest a random address if empty
-          if (!address) {
-            const randomAddr = VN_ADDRESS_SUGGESTIONS[Math.floor(Math.random() * VN_ADDRESS_SUGGESTIONS.length)];
-            setAddress(randomAddr);
-          }
-        },
-        (error) => {
-          console.warn('Geolocation error, falling back to simulation:', error);
-          // Fallback to high-fidelity simulated coordinates in Saigon Center
-          const simLat = (10.776 + (Math.random() - 0.5) * 0.01).toFixed(6);
-          const simLng = (106.701 + (Math.random() - 0.5) * 0.01).toFixed(6);
-          setGps(`${simLat}, ${simLng}`);
-          setGpsSource('simulated');
-          setIsCapturingGps(false);
-          if (!address) {
-            setAddress('Đường Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. HCM');
-          }
-        },
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-    } else {
-      // Direct simulation
-      const simLat = (10.7767 + (Math.random() - 0.5) * 0.01).toFixed(6);
-      const simLng = (106.7011 + (Math.random() - 0.5) * 0.01).toFixed(6);
-      setGps(`${simLat}, ${simLng}`);
-      setGpsSource('simulated');
-      setIsCapturingGps(false);
+    setGpsError('');
+    if (!window.isSecureContext) {
+      setGpsError('Trình duyệt chỉ cho phép định vị trên HTTPS hoặc localhost.');
+      return;
     }
+    if (!navigator.geolocation) {
+      setGpsError('Trình duyệt này không hỗ trợ định vị GPS.');
+      return;
+    }
+
+    setIsCapturingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGps(`${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`);
+        setIsCapturingGps(false);
+      },
+      (error) => {
+        const messages: Record<number, string> = {
+          1: 'Bạn chưa cấp quyền định vị cho trang web. Hãy cho phép vị trí trong cài đặt trình duyệt rồi thử lại.',
+          2: 'Thiết bị chưa xác định được vị trí. Hãy bật dịch vụ vị trí/GPS và thử lại.',
+          3: 'Lấy vị trí quá thời gian chờ. Hãy thử lại ở nơi có tín hiệu tốt hơn.'
+        };
+        setGpsError(messages[error.code] || 'Không lấy được vị trí thật từ thiết bị.');
+        setIsCapturingGps(false);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
   };
 
   // Simulate fast photo taking with camera or file upload
@@ -115,7 +76,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     e.preventDefault();
     const finalName = name.trim() || 'Cửa hàng không tên (Mới)';
     const finalAddress = address.trim() || 'Chưa xác định địa chỉ';
-    const finalGps = gps.trim() || '10.7756, 106.7019'; // Default Saigon Center
+    const finalGps = gps.trim();
 
     onSaveStore({
       name: finalName,
@@ -149,17 +110,6 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
           </div>
         </div>
         
-        {/* Quick Fill Magic Button for testing in-field */}
-        <button
-          id="btn-quick-fill-store"
-          type="button"
-          onClick={handleQuickFill}
-          className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-900 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow-sm"
-          title="Điền nhanh dữ liệu mẫu"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Điền Nhanh</span>
-        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4 pb-36">
@@ -187,13 +137,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
               <Navigation className="w-4 h-4 mr-1 text-slate-500" />
               Tọa Độ Thực Địa (GPS)
             </span>
-            {gpsSource && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
-                gpsSource === 'real' ? 'bg-green-150 text-green-800' : 'bg-amber-100 text-amber-800'
-              }`}>
-                {gpsSource === 'real' ? 'GPS Thật' : 'GPS Giả Lập'}
-              </span>
-            )}
+              {gps && <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-green-100 text-green-800">Tọa độ đã ghi nhận</span>}
           </div>
 
           <div className="flex gap-2">
@@ -202,7 +146,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
               type="text"
               value={gps}
               onChange={(e) => setGps(e.target.value)}
-              placeholder="Nhấp 'Lấy GPS' hoặc điền 'vĩ độ, kinh độ'"
+              placeholder="Bấm 'Lấy GPS' để lấy vị trí thật"
               className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono text-slate-700 focus:outline-none focus:border-slate-400"
             />
             <button
@@ -216,6 +160,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
               <span>{isCapturingGps ? 'Đang lấy...' : 'Lấy GPS'}</span>
             </button>
           </div>
+          {gpsError && <p role="alert" className="text-xs text-red-700">{gpsError}</p>}
         </div>
 
         {/* 3. Address */}

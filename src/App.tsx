@@ -327,6 +327,11 @@ export default function App() {
     refreshData();
   };
 
+  const handleUpdateMasterSku = (sku: SKU) => {
+    OfflineDB.saveSKU(sku);
+    refreshData();
+  };
+
   // Rendering screen routing
   const activeSurvey = surveys.find(s => s.id === activeSurveyId);
   const activeStore = activeSurvey ? stores.find(s => s.id === activeSurvey.storeId) : null;
@@ -446,6 +451,7 @@ export default function App() {
           <ManageSKUs
             skus={skus}
             onAddSku={handleAddMasterSku}
+            onUpdateSku={handleUpdateMasterSku}
             onDeleteSku={handleDeleteMasterSku}
             onBack={() => setScreen('survey-list')}
           />

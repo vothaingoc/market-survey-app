@@ -53,7 +53,6 @@ export const SurveyList: React.FC<SurveyListProps> = ({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold tracking-tight">SỔ TAY THỊ TRƯỜNG</h1>
-            <p className="text-xs text-slate-400 font-mono">Phiên bản Điểm bán • Ngoại tuyến</p>
           </div>
           <div className="flex items-center space-x-1 bg-green-950 text-green-400 border border-green-800 text-xs px-2 py-1 rounded font-mono">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>

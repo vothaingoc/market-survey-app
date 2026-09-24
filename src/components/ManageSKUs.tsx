@@ -5,13 +5,14 @@
 
 import React, { useState, useMemo } from 'react';
 import { SKU } from '../types';
-import { ArrowLeft, Plus, Trash2, Search, PackageOpen, Check } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Search, PackageOpen, Check, Pencil, X } from 'lucide-react';
 import { MANUFACTURERS } from '../data/masterData';
 import { ConfirmModal } from './ConfirmModal';
 
 interface ManageSKUsProps {
   skus: SKU[];
   onAddSku: (sku: Omit<SKU, 'id'>) => void;
+  onUpdateSku: (sku: SKU) => void;
   onDeleteSku: (id: string) => void;
   onBack: () => void;
 }
@@ -19,6 +20,7 @@ interface ManageSKUsProps {
 export const ManageSKUs: React.FC<ManageSKUsProps> = ({
   skus,
   onAddSku,
+  onUpdateSku,
   onDeleteSku,
   onBack,
 }) => {
@@ -29,6 +31,9 @@ export const ManageSKUs: React.FC<ManageSKUsProps> = ({
   const [newSkuMfg, setNewSkuMfg] = useState('ACV');
   const [isCustomMfgInput, setIsCustomMfgInput] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingSku, setEditingSku] = useState<SKU | null>(null);
+  const [editSkuName, setEditSkuName] = useState('');
+  const [editSkuManufacturer, setEditSkuManufacturer] = useState('');
 
   // Dynamic list of manufacturers
   const manufacturerList = useMemo(() => {
@@ -69,6 +74,13 @@ export const ManageSKUs: React.FC<ManageSKUsProps> = ({
     });
     setNewSkuName('');
     setShowAddForm(false);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSku || !editSkuName.trim() || !editSkuManufacturer.trim()) return;
+    onUpdateSku({ ...editingSku, name: editSkuName.trim(), manufacturer: editSkuManufacturer.trim() });
+    setEditingSku(null);
   };
 
   return (
@@ -274,19 +286,58 @@ export const ManageSKUs: React.FC<ManageSKUsProps> = ({
                 </div>
 
                 {/* Allow deleting any SKU */}
-                <button
-                  id={`btn-delete-master-sku-${sku.id}`}
-                  onClick={() => setDeleteSku(sku)}
-                  className="p-1.5 text-slate-300 hover:text-red-500 active:bg-red-50 rounded transition-colors"
-                  title="Xóa SKU này"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center shrink-0">
+                  <button
+                    id={`btn-edit-master-sku-${sku.id}`}
+                    onClick={() => {
+                      setEditingSku(sku);
+                      setEditSkuName(sku.name);
+                      setEditSkuManufacturer(sku.manufacturer);
+                      setShowAddForm(false);
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-blue-600 active:bg-blue-50 rounded transition-colors"
+                    title="Sửa SKU này"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    id={`btn-delete-master-sku-${sku.id}`}
+                    onClick={() => setDeleteSku(sku)}
+                    className="p-1.5 text-slate-300 hover:text-red-500 active:bg-red-50 rounded transition-colors"
+                    title="Xóa SKU này"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {editingSku && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-3" role="presentation">
+          <form onSubmit={handleEditSubmit} className="w-full max-w-md bg-white rounded-2xl p-4 space-y-4 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="edit-sku-title">
+            <div className="flex items-center justify-between">
+              <h2 id="edit-sku-title" className="font-bold text-slate-800">Sửa thông tin SKU</h2>
+              <button type="button" onClick={() => setEditingSku(null)} className="p-1 text-slate-500" aria-label="Đóng"><X className="w-5 h-5" /></button>
+            </div>
+            <label className="block space-y-1">
+              <span className="text-xs font-bold text-slate-600">Tên SKU</span>
+              <input autoFocus required value={editSkuName} onChange={e => setEditSkuName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-bold text-slate-600">Nhà sản xuất</span>
+              <input required list="edit-sku-manufacturers" value={editSkuManufacturer} onChange={e => setEditSkuManufacturer(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              <datalist id="edit-sku-manufacturers">{manufacturerList.map(manufacturer => <option key={manufacturer} value={manufacturer} />)}</datalist>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditingSku(null)} className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 rounded-lg">Hủy</button>
+              <button type="submit" className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg">Lưu thay đổi</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <ConfirmModal
         isOpen={deleteSku !== null}
