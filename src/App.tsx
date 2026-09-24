@@ -16,7 +16,7 @@ import { EnteredProducts } from './components/EnteredProducts';
 import { ManageSKUs } from './components/ManageSKUs';
 import { ManageStores } from './components/ManageStores';
 import { ExportRawData } from './components/ExportRawData';
-import { Smartphone, BookOpen, Layers } from 'lucide-react';
+import { Smartphone, Copy, FilePlus2, X } from 'lucide-react';
 
 export default function App() {
   const [currentScreen, setScreen] = useState<string>('survey-list');
@@ -24,6 +24,7 @@ export default function App() {
   const [activeSkuId, setActiveSkuId] = useState<string | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [editingRecord, setEditingRecord] = useState<SurveyRecord | null>(null);
+  const [pendingStoreChoiceId, setPendingStoreChoiceId] = useState<string | null>(null);
 
   // Synced local DB states
   const [surveys, setSurveys] = useState<Survey[]>([]);
@@ -73,38 +74,96 @@ export default function App() {
     setScreen('store-selection');
   };
 
+  const getDatePart = (value: string): string => value.split(' ')[0].replace(/\//g, '-');
+
+  const isTodaySurvey = (survey: Survey): boolean => getDatePart(survey.date) === getDatePart(formatCurrentTime());
+
+  const getSurveyTime = (survey: Survey): number => {
+    const normalized = survey.date.replace(/\//g, '-').replace(' ', 'T');
+    const time = new Date(normalized).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  };
+
+  const getLatestSurveyForStore = (storeId: string, sourceSurveys = OfflineDB.getSurveys()): Survey | null => {
+    const storeSurveys = sourceSurveys
+      .filter(survey => survey.storeId === storeId)
+      .sort((a, b) => getSurveyTime(b) - getSurveyTime(a));
+    return storeSurveys[0] || null;
+  };
+
+  const openSurvey = (surveyId: string, screen: 'product-selection' | 'entered-products' = 'product-selection') => {
+    setActiveSurveyId(surveyId);
+    setPendingStoreChoiceId(null);
+    setScreen(screen);
+  };
+
+  const createBlankSurvey = (storeId: string) => {
+    const newSurvey: Survey = {
+      id: `survey_${Date.now()}`,
+      storeId,
+      date: formatCurrentTime(),
+      status: 'đang thực hiện',
+    };
+    OfflineDB.saveSurvey(newSurvey);
+    refreshData();
+    openSurvey(newSurvey.id);
+  };
+
+  const createSurveyFromPrevious = (storeId: string) => {
+    const previousSurvey = getLatestSurveyForStore(storeId);
+    if (!previousSurvey) {
+      createBlankSurvey(storeId);
+      return;
+    }
+
+    const timestamp = Date.now();
+    const newSurvey: Survey = {
+      id: `survey_${timestamp}`,
+      storeId,
+      date: formatCurrentTime(),
+      status: 'đang thực hiện',
+    };
+    OfflineDB.saveSurvey(newSurvey);
+
+    const previousRecords = OfflineDB.getRecords().filter(record => record.surveyId === previousSurvey.id);
+    previousRecords.forEach((record, index) => {
+      OfflineDB.saveRecord({
+        ...record,
+        id: `record_${timestamp}_${index + 1}`,
+        surveyId: newSurvey.id,
+        photo: null,
+        photos: [],
+        timestamp: formatCurrentTime(),
+      });
+    });
+
+    refreshData();
+    openSurvey(newSurvey.id, previousRecords.length > 0 ? 'entered-products' : 'product-selection');
+  };
+
   // Selection of a store to create/resume survey
   const handleSelectStore = (storeId: string) => {
     setEditingRecord(null);
     const currentSurveys = OfflineDB.getSurveys();
-    const currentStores = OfflineDB.getStores();
 
-    // Check if there is already an in-progress survey for this store today
+    // Open an unfinished survey only when it belongs to today. Older unfinished surveys can be used as previous data.
     const existing = currentSurveys.find(
-      s => s.storeId === storeId && s.status === 'đang thực hiện'
+      s => s.storeId === storeId && s.status === 'đang thực hiện' && isTodaySurvey(s)
     );
 
-    let targetSurveyId: string;
-    let nextSurveys = [...currentSurveys];
-
     if (existing) {
-      targetSurveyId = existing.id;
-    } else {
-      const newSurvey: Survey = {
-        id: `survey_${Date.now()}`,
-        storeId,
-        date: formatCurrentTime(),
-        status: 'đang thực hiện',
-      };
-      OfflineDB.saveSurvey(newSurvey);
-      nextSurveys.push(newSurvey);
-      targetSurveyId = newSurvey.id;
+      refreshData();
+      openSurvey(existing.id);
+      return;
     }
 
-    setStores(currentStores);
-    setSurveys(nextSurveys);
-    setActiveSurveyId(targetSurveyId);
-    setScreen('product-selection');
+    const previousSurvey = getLatestSurveyForStore(storeId, currentSurveys);
+    if (previousSurvey && OfflineDB.getRecords().some(record => record.surveyId === previousSurvey.id)) {
+      setPendingStoreChoiceId(storeId);
+      return;
+    }
+
+    createBlankSurvey(storeId);
   };
 
   // Creating or editing a store from the field form
@@ -272,6 +331,11 @@ export default function App() {
   const activeSurvey = surveys.find(s => s.id === activeSurveyId);
   const activeStore = activeSurvey ? stores.find(s => s.id === activeSurvey.storeId) : null;
   const activeSku = skus.find(s => s.id === activeSkuId);
+  const pendingStoreChoice = pendingStoreChoiceId ? stores.find(store => store.id === pendingStoreChoiceId) : null;
+  const pendingPreviousSurvey = pendingStoreChoiceId ? getLatestSurveyForStore(pendingStoreChoiceId, surveys) : null;
+  const pendingPreviousRecordCount = pendingPreviousSurvey
+    ? records.filter(record => record.surveyId === pendingPreviousSurvey.id).length
+    : 0;
 
   const renderActiveScreen = () => {
     switch (currentScreen) {
@@ -461,6 +525,60 @@ export default function App() {
       {/* Primary Mobile Container (Fills screen on real phone, centered card on desktop) */}
       <div className="w-full max-w-md h-screen md:h-[840px] md:rounded-3xl bg-white border border-slate-800 md:shadow-2xl overflow-hidden relative flex flex-col">
         {renderActiveScreen()}
+        {pendingStoreChoice && pendingPreviousSurvey && (
+          <div className="absolute inset-0 z-50 bg-slate-950/70 flex items-end sm:items-center justify-center p-4">
+            <div className="w-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">Chọn cách bắt đầu khảo sát</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {pendingStoreChoice.name} có data kỳ trước ({pendingPreviousRecordCount} SKU).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingStoreChoiceId(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
+                  aria-label="Đóng"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3">
+                <button
+                  id="btn-create-survey-from-previous"
+                  type="button"
+                  onClick={() => createSurveyFromPrevious(pendingStoreChoice.id)}
+                  className="w-full p-4 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 rounded-xl flex items-start gap-3 text-left transition-all"
+                >
+                  <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0">
+                    <Copy className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-extrabold text-slate-900 text-sm">Tạo từ data kỳ trước</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Copy giá, HSD, loại hàng, facing và mã nhà máy. Không copy ảnh.</div>
+                  </div>
+                </button>
+
+                <button
+                  id="btn-create-blank-survey"
+                  type="button"
+                  onClick={() => createBlankSurvey(pendingStoreChoice.id)}
+                  className="w-full p-4 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-xl flex items-start gap-3 text-left transition-all"
+                >
+                  <div className="p-2 bg-slate-700 text-white rounded-xl shrink-0">
+                    <FilePlus2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-extrabold text-slate-900 text-sm">Tạo khảo sát mới</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Bắt đầu khảo sát trống như workflow hiện tại.</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
