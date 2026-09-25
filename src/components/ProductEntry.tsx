@@ -30,6 +30,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   const [price5, setPrice5] = useState<string>('');
   const [priceCarton, setPriceCarton] = useState<string>('');
   const [expiryRaw, setExpiryRaw] = useState<string>('');
+  const [expiryError, setExpiryError] = useState('');
   const [factoryCode, setFactoryCode] = useState<string>('');
   const [facing, setFacing] = useState<number>(1);
   const [photos, setPhotos] = useState<string[]>([]);
@@ -65,6 +66,22 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     // Only accept numbers
     const digits = val.replace(/\D/g, '').substring(0, 6);
     setExpiryRaw(digits);
+    setExpiryError('');
+  };
+
+  const validateExpiry = (digits: string): string => {
+    if (!digits) return '';
+    if (digits.length !== 4 && digits.length !== 6) return 'HSD cần có 4 số (YYMM) hoặc 6 số (YYMMDD).';
+
+    const year = 2000 + Number(digits.slice(0, 2));
+    const month = Number(digits.slice(2, 4));
+    if (month < 1 || month > 12) return 'Tháng phải nằm trong khoảng 01–12.';
+    if (digits.length === 4) return '';
+
+    const day = Number(digits.slice(4, 6));
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (day < 1 || day > daysInMonth) return `Ngày không hợp lệ. Tháng ${String(month).padStart(2, '0')}/${year} có ${daysInMonth} ngày.`;
+    return '';
   };
 
   // Convert raw digits to Vietnamese-standard formatted string
@@ -206,6 +223,11 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
   const handleFormSubmit = async (continueSameSku: boolean) => {
     if (isProcessingPhotos) return;
+    const dateError = validateExpiry(expiryRaw);
+    if (dateError) {
+      setExpiryError(dateError);
+      return;
+    }
     setIsProcessingPhotos(true);
 
     // Determine final expiry format
@@ -479,9 +501,12 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
             pattern="[0-9]*"
             value={expiryRaw}
             onChange={(e) => handleExpiryChange(e.target.value)}
+            aria-invalid={Boolean(expiryError)}
+            aria-describedby={expiryError ? 'expiry-date-error' : undefined}
             placeholder="Gõ nhanh số in trên vỏ: e.g. 260915 hoặc 2609"
-            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-slate-400 focus:bg-white text-base font-mono font-bold rounded-xl outline-none"
+            className={`w-full px-4 py-3 bg-slate-50 border focus:bg-white text-base font-mono font-bold rounded-xl outline-none ${expiryError ? 'border-red-500 focus:border-red-500' : 'border-slate-200 focus:border-slate-400'}`}
           />
+          {expiryError && <p id="expiry-date-error" role="alert" className="text-xs font-medium text-red-600">{expiryError}</p>}
 
           {/* Factory codes for ACV products: placed between input and tip */}
           {isACV && (

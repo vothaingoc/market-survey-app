@@ -52,13 +52,23 @@ function stringifyGps(value: unknown): string {
 function normalizeIsoDate(value: unknown): string | null {
   if (isBlank(value)) return null;
   const raw = String(value).trim();
+  if (/^(khong ro hsd|không rõ hsd)$/i.test(raw)) return null;
   const datePart = raw.split(/[ T]/)[0];
-  const match = datePart.match(/^(\d{4})[-/](\d{1,2})(?:[-/](\d{1,2}))?$/);
+  const monthOnlyMatch = datePart.match(/^(\d{4})[-/](\d{1,2})$/);
+  if (monthOnlyMatch) {
+    const year = Number(monthOnlyMatch[1]);
+    const month = Number(monthOnlyMatch[2]);
+    if (month < 1 || month > 12) return null;
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  }
+
+  const match = datePart.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (!match) return null;
 
   const year = Number(match[1]);
   let month = Number(match[2]);
-  let day = match[3] ? Number(match[3]) : 1;
+  let day = Number(match[3]);
 
   if (month > 12 && day >= 1 && day <= 12) {
     const originalMonth = month;
