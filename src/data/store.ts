@@ -8,6 +8,17 @@ import { INITIAL_STORES, INITIAL_SKUS } from './masterData';
 
 const SCHEMA_VERSION = '1.0';
 const OSAKA_SEED_SURVEY_PREFIX = 'survey_osaka_2026_07_03_';
+const OSAKA_SEED_STORE_IDS = new Set([
+  'store_01',
+  'store_02',
+  'store_03',
+  'store_04',
+  'store_05',
+  'store_06',
+  'store_07',
+  'store_08',
+  'store_09',
+]);
 
 type NormalizedDistribution = 'official' | 'parallel' | 'unknown';
 
@@ -157,11 +168,24 @@ function setLocal<T>(key: string, value: T): boolean {
 
 export const OfflineDB = {
   removeOsakaSeedSurveyData(): void {
+    const stores = getLocal<Store[]>('survey_stores', []);
     const surveys = getLocal<Survey[]>('survey_list', []);
     const records = getLocal<SurveyRecord[]>('survey_records', []);
-    const nextSurveys = surveys.filter(survey => !survey.id.startsWith(OSAKA_SEED_SURVEY_PREFIX));
-    const nextRecords = records.filter(record => !record.surveyId.startsWith(OSAKA_SEED_SURVEY_PREFIX));
+    const seedSurveyIds = new Set(
+      surveys
+        .filter(survey => (
+          survey.id.startsWith(OSAKA_SEED_SURVEY_PREFIX)
+          || OSAKA_SEED_STORE_IDS.has(survey.storeId)
+        ))
+        .map(survey => survey.id)
+    );
+    const nextStores = stores.filter(store => !OSAKA_SEED_STORE_IDS.has(store.id));
+    const nextSurveys = surveys.filter(survey => !seedSurveyIds.has(survey.id));
+    const nextRecords = records.filter(record => !seedSurveyIds.has(record.surveyId));
 
+    if (nextStores.length !== stores.length) {
+      setLocal('survey_stores', nextStores);
+    }
     if (nextSurveys.length !== surveys.length) {
       setLocal('survey_list', nextSurveys);
     }
