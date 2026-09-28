@@ -100,7 +100,7 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
               <div
                 key={store.id}
                 id={`manage-store-item-${store.id}`}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex items-start gap-3"
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs grid grid-cols-[minmax(0,1fr)_6rem_2.5rem] gap-3 items-center"
               >
                 <div
                   className={`min-w-0 flex-1 ${onSelectStore ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
@@ -123,9 +123,9 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
                   )}
                 </div>
 
-                {store.photo && (
+                {store.photo ? (
                   <div
-                    className="w-24 h-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                    className="w-24 h-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
                     aria-label={`Ảnh mặt tiền ${store.name}`}
                   >
                     <img
@@ -135,14 +135,16 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
                       referrerPolicy="no-referrer"
                     />
                   </div>
+                ) : (
+                  <div className="w-24 h-16 rounded-lg border border-dashed border-slate-200 bg-slate-50" />
                 )}
 
                 {/* Action buttons: Edit & Delete */}
-                <div className="flex items-center space-x-1 shrink-0">
+                <div className="flex flex-col items-center justify-center gap-2">
                   <button
                     id={`btn-edit-master-store-${store.id}`}
                     onClick={() => onEditStore(store)}
-                    className="p-1.5 text-slate-400 hover:text-blue-600 active:bg-blue-50 rounded transition-colors"
+                    className="w-9 h-8 flex items-center justify-center text-slate-500 hover:text-blue-600 active:bg-blue-50 rounded-lg transition-colors"
                     title="Chỉnh sửa điểm bán"
                   >
                     <Pencil className="w-4 h-4" />
@@ -150,7 +152,7 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
                   <button
                     id={`btn-delete-master-store-${store.id}`}
                     onClick={() => setDeleteStore(store)}
-                    className="p-1.5 text-slate-300 hover:text-red-500 active:bg-red-50 rounded transition-colors"
+                    className="w-9 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 active:bg-red-50 rounded-lg transition-colors"
                     title="Xóa điểm bán này"
                   >
                     <Trash2 className="w-4 h-4" />
