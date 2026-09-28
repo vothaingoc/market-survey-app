@@ -100,10 +100,10 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
               <div
                 key={store.id}
                 id={`manage-store-item-${store.id}`}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex items-start justify-between"
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex items-start gap-3"
               >
                 <div
-                  className={`min-w-0 flex-1 pr-3 ${onSelectStore ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+                  className={`min-w-0 flex-1 ${onSelectStore ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
                   onClick={() => onSelectStore?.(store.id)}
                 >
                   <div className="flex items-center space-x-1.5">
@@ -123,8 +123,24 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
                   )}
                 </div>
 
+                {store.photo && (
+                  <button
+                    type="button"
+                    onClick={() => onEditStore(store)}
+                    className="w-24 h-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 active:scale-[0.98]"
+                    title="Xem ảnh mặt tiền"
+                  >
+                    <img
+                      src={store.photo}
+                      alt={`Ảnh mặt tiền ${store.name}`}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </button>
+                )}
+
                 {/* Action buttons: Edit & Delete */}
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-1 shrink-0">
                   <button
                     id={`btn-edit-master-store-${store.id}`}
                     onClick={() => onEditStore(store)}
