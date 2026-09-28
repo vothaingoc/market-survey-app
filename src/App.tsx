@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react';
 import { Store, SKU, Survey, SurveyRecord } from './types';
 import { OfflineDB } from './data/store';
-import { runOsakaSeedImport } from './data/importer';
 import { SurveyList } from './components/SurveyList';
 import { StoreSelection } from './components/StoreSelection';
 import { StoreForm } from './components/StoreForm';
@@ -63,7 +62,7 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    runOsakaSeedImport();
+    OfflineDB.removeOsakaSeedSurveyData();
     refreshData();
   }, []);
 

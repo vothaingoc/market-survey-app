@@ -7,6 +7,7 @@ import { Store, SKU, Survey, SurveyRecord, DistributionType } from '../types';
 import { INITIAL_STORES, INITIAL_SKUS } from './masterData';
 
 const SCHEMA_VERSION = '1.0';
+const OSAKA_SEED_SURVEY_PREFIX = 'survey_osaka_2026_07_03_';
 
 type NormalizedDistribution = 'official' | 'parallel' | 'unknown';
 
@@ -155,6 +156,21 @@ function setLocal<T>(key: string, value: T): boolean {
 }
 
 export const OfflineDB = {
+  removeOsakaSeedSurveyData(): void {
+    const surveys = getLocal<Survey[]>('survey_list', []);
+    const records = getLocal<SurveyRecord[]>('survey_records', []);
+    const nextSurveys = surveys.filter(survey => !survey.id.startsWith(OSAKA_SEED_SURVEY_PREFIX));
+    const nextRecords = records.filter(record => !record.surveyId.startsWith(OSAKA_SEED_SURVEY_PREFIX));
+
+    if (nextSurveys.length !== surveys.length) {
+      setLocal('survey_list', nextSurveys);
+    }
+    if (nextRecords.length !== records.length) {
+      setLocal('survey_records', nextRecords);
+    }
+    localStorage.removeItem('osaka_seed_imported_v1');
+  },
+
   // Stores
   getStores(): Store[] {
     const raw = localStorage.getItem('survey_stores');
