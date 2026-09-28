@@ -175,7 +175,11 @@ export default function App() {
         ...editingStore,
         ...storeData,
       };
-      OfflineDB.saveStore(updatedStore);
+      const saved = OfflineDB.saveStore(updatedStore);
+      if (!saved) {
+        window.alert('Khong the luu anh diem ban vi bo nho trinh duyet khong du. Vui long xoa bot anh hoac xuat sao luu roi thu lai.');
+        return;
+      }
       const nextStores = currentStores.map(s => s.id === updatedStore.id ? updatedStore : s);
       setEditingStore(null);
       setStores(nextStores);
@@ -186,7 +190,11 @@ export default function App() {
         ...storeData,
         id: newStoreId,
       };
-      OfflineDB.saveStore(newStore);
+      const saved = OfflineDB.saveStore(newStore);
+      if (!saved) {
+        window.alert('Khong the luu diem ban vi bo nho trinh duyet khong du. Vui long xoa bot anh hoac xuat sao luu roi thu lai.');
+        return;
+      }
 
       // Create a new survey for this store immediately
       const newSurvey: Survey = {

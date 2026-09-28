@@ -19,6 +19,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
   const [gps, setGps] = useState(initialStore?.gps || '');
   const [photo, setPhoto] = useState<string | null>(initialStore?.photo || null);
   const [isCapturingGps, setIsCapturingGps] = useState(false);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [gpsError, setGpsError] = useState('');
 
   // Read the device's actual location. Never substitute simulated coordinates.
@@ -52,15 +53,51 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     );
   };
 
-  // Simulate fast photo taking with camera or file upload
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const optimizePhotoDataUrl = (source: string): Promise<string> => new Promise((resolve, reject) => {
+    if (source.startsWith('data:image/svg+xml')) {
+      resolve(source);
+      return;
+    }
+
+    const image = new Image();
+    image.onerror = () => reject(new Error('Khong the doc anh'));
+    image.onload = () => {
+      const maxSide = 1000;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return reject(new Error('Khong the xu ly anh'));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.6));
+    };
+    image.src = source;
+  });
+
+  const optimizePhoto = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      optimizePhotoDataUrl(reader.result as string).then(resolve).catch(reject);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Capture/upload storefront photo and compress it before storing in browser storage.
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhoto(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      e.target.value = '';
+      setIsProcessingPhoto(true);
+      try {
+        setPhoto(await optimizePhoto(file));
+      } catch (error) {
+        console.error('Error processing store photo', error);
+        window.alert('Khong the xu ly anh vua chon. Vui long chup lai.');
+      } finally {
+        setIsProcessingPhoto(false);
+      }
     }
   };
 
@@ -72,17 +109,19 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     setPhoto(mockSvg);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
+    if (isProcessingPhoto) return;
     const finalName = name.trim() || 'Cửa hàng không tên (Mới)';
     const finalAddress = address.trim() || 'Chưa xác định địa chỉ';
     const finalGps = gps.trim();
+    const finalPhoto = photo ? await optimizePhotoDataUrl(photo) : null;
 
     onSaveStore({
       name: finalName,
       address: finalAddress,
       gps: finalGps,
-      photo: photo || undefined,
+      photo: finalPhoto || undefined,
       isCustom: true
     });
   };
@@ -218,6 +257,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
                         accept="image/*"
                         capture="environment"
                         onChange={handlePhotoUpload}
+                        disabled={isProcessingPhoto}
                         className="hidden"
                       />
                     </label>
@@ -255,10 +295,11 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
           id="btn-store-form-save"
           type="button"
           onClick={handleSubmit}
-          className="h-14 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-base tracking-wide uppercase flex items-center justify-center space-x-1.5 shadow-lg"
+          disabled={isProcessingPhoto}
+          className="h-14 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-slate-300 text-white font-bold rounded-xl text-base tracking-wide uppercase flex items-center justify-center space-x-1.5 shadow-lg"
         >
           <Save className="w-5 h-5" />
-          <span>{initialStore ? 'Lưu Thay Đổi' : 'Lưu & Khảo sát'}</span>
+          <span>{isProcessingPhoto ? 'Đang xử lý ảnh...' : (initialStore ? 'Lưu Thay Đổi' : 'Lưu & Khảo sát')}</span>
         </button>
       </div>
     </div>

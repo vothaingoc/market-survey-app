@@ -210,7 +210,7 @@ export const OfflineDB = {
     }
   },
   
-  saveStore(store: Store): void {
+  saveStore(store: Store): boolean {
     const stores = this.getStores();
     const index = stores.findIndex(s => s.id === store.id);
     if (index >= 0) {
@@ -218,7 +218,7 @@ export const OfflineDB = {
     } else {
       stores.unshift(store); // Add newest first
     }
-    setLocal('survey_stores', stores);
+    return setLocal('survey_stores', stores);
   },
 
   deleteStore(id: string): void {
