@@ -124,19 +124,17 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
                 </div>
 
                 {store.photo && (
-                  <button
-                    type="button"
-                    onClick={() => onEditStore(store)}
-                    className="w-24 h-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 active:scale-[0.98]"
-                    title="Xem ảnh mặt tiền"
+                  <div
+                    className="w-24 h-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                    aria-label={`Ảnh mặt tiền ${store.name}`}
                   >
                     <img
                       src={store.photo}
                       alt={`Ảnh mặt tiền ${store.name}`}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                       referrerPolicy="no-referrer"
                     />
-                  </button>
+                  </div>
                 )}
 
                 {/* Action buttons: Edit & Delete */}
