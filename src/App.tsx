@@ -156,6 +156,9 @@ export default function App() {
         factoryCode: null,
         photo: null,
         photos: [],
+        verificationStatus: 'copied',
+        verifiedAt: null,
+        sourceSurveyId: previousSurvey.id,
         timestamp: formatCurrentTime(),
       });
       if (!saved) {
@@ -303,10 +306,19 @@ export default function App() {
     continueSameSku: boolean
   ) => {
     const wasEditing = !!editingRecord;
+    const savedAt = formatCurrentTime();
+    const verificationStatus = editingRecord?.verificationStatus === 'new'
+      ? 'new'
+      : editingRecord
+        ? 'confirmed'
+        : 'new';
     const newRecord: SurveyRecord = {
       ...recordData,
       id: recordData.id || `record_${Date.now()}`,
-      timestamp: formatCurrentTime(),
+      verificationStatus,
+      verifiedAt: savedAt,
+      sourceSurveyId: editingRecord?.sourceSurveyId || null,
+      timestamp: savedAt,
     };
     const saved = await OfflineDB.saveRecord(newRecord);
     if (!saved) {

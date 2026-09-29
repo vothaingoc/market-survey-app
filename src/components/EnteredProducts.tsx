@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { SurveyRecord, SKU, Store, Survey } from '../types';
-import { ArrowLeft, Trash2, ShieldCheck, ShoppingBag, Plus, Edit3, X } from 'lucide-react';
+import { ArrowLeft, Trash2, ShieldCheck, ShoppingBag, Plus, Edit3, X, Check } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 
 interface EnteredProductsProps {
@@ -92,6 +92,7 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
           <div className="space-y-2">
             {activeRecords.map((record) => {
               const sku = skuMap.get(record.skuId);
+              const verificationStatus = record.verificationStatus || 'confirmed';
               return (
                 <div
                   key={record.id}
@@ -127,7 +128,21 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
                     </div>
 
                     {/* Quick Edit & Delete Actions */}
-                    <div className="flex items-center space-x-1 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0 self-center">
+                      {verificationStatus === 'copied' ? (
+                        <span className="whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-1 text-[8px] font-extrabold uppercase tracking-tight text-amber-700">
+                          Chưa xác nhận
+                        </span>
+                      ) : verificationStatus === 'new' ? (
+                        <span className="whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-1.5 py-1 text-[8px] font-extrabold uppercase tracking-tight text-blue-700">
+                          Mới
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-[8px] font-extrabold uppercase tracking-tight text-emerald-700">
+                          <Check className="h-2.5 w-2.5" />
+                          Đã xác nhận
+                        </span>
+                      )}
                       <button
                         id={`btn-edit-record-${record.id}`}
                         onClick={() => onEditRecord(record)}

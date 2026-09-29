@@ -22,6 +22,7 @@ export interface SKU {
 }
 
 export type DistributionType = 'Chính ngạch' | 'Tiểu ngạch' | 'Không rõ';
+export type VerificationStatus = 'copied' | 'confirmed' | 'new';
 
 export interface SurveyRecord {
   id: string;
@@ -37,6 +38,9 @@ export interface SurveyRecord {
   photo: string | null; // base64 string
   photos?: string[]; // array of base64 photo strings
   timestamp: string; // YYYY-MM-DD HH:mm:ss
+  verificationStatus?: VerificationStatus;
+  verifiedAt?: string | null;
+  sourceSurveyId?: string | null;
 }
 
 export interface Survey {

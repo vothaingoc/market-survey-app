@@ -552,6 +552,9 @@ export const OfflineDB = {
         factoryCode: normalizeText(record.factoryCode),
         faceCount: record.facing ?? null,
         notes: null,
+        verificationStatus: record.verificationStatus || 'confirmed',
+        verifiedAt: record.verifiedAt || null,
+        sourceSurveyId: record.sourceSurveyId || null,
         photos: rawPhotos.map((photo, index) => photoToExport(photo, record.id, index)),
       };
     });
@@ -730,6 +733,13 @@ export const OfflineDB = {
         facing: observation.faceCount ?? 1,
         photo: null,
         photos,
+        verificationStatus: observation.verificationStatus === 'copied'
+          || observation.verificationStatus === 'new'
+          || observation.verificationStatus === 'confirmed'
+          ? observation.verificationStatus
+          : 'confirmed',
+        verifiedAt: normalizeText(observation.verifiedAt),
+        sourceSurveyId: normalizeText(observation.sourceSurveyId),
         timestamp: new Date().toISOString(),
       });
     });
