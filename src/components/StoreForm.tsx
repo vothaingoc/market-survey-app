@@ -71,14 +71,6 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     }
   };
 
-  const handleSimulatePhoto = () => {
-    // Generates a mock store facade SVG in base64
-    const colors = ['#0f766e', '#1e3a8a', '#b91c1c', '#3f2b96', '#15803d'];
-    const selectedColor = colors[Math.floor(Math.random() * colors.length)];
-    const mockSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="${encodeURIComponent(selectedColor)}"/><rect x="20" y="60" width="260" height="120" fill="white" stroke="black" stroke-width="3"/><rect x="40" y="90" width="70" height="90" fill="%23ddd" stroke="black"/><rect x="190" y="90" width="70" height="90" fill="%23ddd" stroke="black"/><text x="150" y="40" fill="white" font-family="sans-serif" font-weight="bold" font-size="20" text-anchor="middle">CỬA HÀNG THỊ TRƯỜNG</text><text x="150" y="140" fill="black" font-family="sans-serif" font-size="12" text-anchor="middle">MẶT TIỀN ĐIỂM BÁN</text></svg>`;
-    setPhoto(mockSvg);
-  };
-
   const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (isProcessingPhoto) return;
@@ -215,7 +207,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
                 <Camera className="w-10 h-10 text-slate-400 mx-auto" />
                 <div className="flex flex-col space-y-2 items-center">
                   <span className="text-xs text-slate-500 font-medium">Chụp trực tiếp bằng điện thoại hoặc tải file ảnh</span>
-                  <div className="flex space-x-2">
+                  <div>
                     {/* Real Camera / File Upload Trigger */}
                     <label className="bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-all border border-slate-200 shadow-sm">
                       Chọn File / Chụp Máy Ảnh
@@ -229,16 +221,6 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
                         className="hidden"
                       />
                     </label>
-
-                    {/* Simulation Button for instant testing in AI studio preview */}
-                    <button
-                      id="btn-simulate-store-photo"
-                      type="button"
-                      onClick={handleSimulatePhoto}
-                      className="bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border border-emerald-200 text-xs font-semibold px-3 py-2 rounded-lg transition-all"
-                    >
-                      Giả Lập Ảnh Chụp
-                    </button>
                   </div>
                 </div>
               </div>

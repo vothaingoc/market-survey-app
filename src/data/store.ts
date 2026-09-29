@@ -481,6 +481,95 @@ export const OfflineDB = {
     return BOM + csvContent;
   },
 
+  exportCSVWithPhotos(surveyIds?: string[]): {
+    csv: string;
+    photos: { filename: string; mimeType: string; dataUrl: string }[];
+  } {
+    let records = this.getRecords();
+    if (surveyIds && surveyIds.length > 0) {
+      records = records.filter(record => surveyIds.includes(record.surveyId));
+    }
+
+    const storeMap = new Map<string, Store>(this.getStores().map(store => [store.id, store]));
+    const skuMap = new Map<string, SKU>(this.getSKUs().map(sku => [sku.id, sku]));
+    const surveyMap = new Map<string, Survey>(this.getSurveys().map(survey => [survey.id, survey]));
+    const photos: { filename: string; mimeType: string; dataUrl: string }[] = [];
+
+    const sanitizeFilename = (value: string): string => value
+      .normalize('NFKC')
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 80) || 'SKU';
+
+    const headers = [
+      'STT',
+      'Mã Khảo Sát',
+      'Thời Gian',
+      'Tên Cửa Hàng',
+      'Địa Chỉ Cửa Hàng',
+      'Tọa Độ GPS',
+      'Nhà Sản Xuất',
+      'Tên SKU',
+      'Loại Hàng',
+      'Giá 1 Gói (Yên)',
+      'Giá 5 Gói (Yên)',
+      'Giá 1 Thùng (Yên)',
+      'Hạn Sử Dụng',
+      'Mã Nhà Máy',
+      'Số Face',
+      'Số Lượng Ảnh',
+      'Tên File Ảnh',
+    ];
+
+    const rows = records.map((record, recordIndex) => {
+      const sequence = recordIndex + 1;
+      const survey = surveyMap.get(record.surveyId);
+      const store = survey ? storeMap.get(survey.storeId) : undefined;
+      const sku = skuMap.get(record.skuId);
+      const rawPhotos = record.photos && record.photos.length > 0
+        ? record.photos
+        : record.photo
+          ? [record.photo]
+          : [];
+      const photoFilenames = rawPhotos.map((photo, photoIndex) => {
+        const mimeType = getPhotoMimeType(photo);
+        const extension = mimeType === 'image/jpeg'
+          ? 'jpg'
+          : mimeType === 'image/svg+xml'
+            ? 'svg'
+            : mimeType.split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'bin';
+        const filename = `${sequence}. ${sanitizeFilename(sku?.name || 'SKU')}_${photoIndex + 1}.${extension}`;
+        photos.push({ filename, mimeType, dataUrl: photo });
+        return filename;
+      });
+
+      return [
+        sequence,
+        record.surveyId,
+        survey?.date || '',
+        store?.name || 'Cửa hàng đã xóa',
+        store?.address || '',
+        store?.gps || '',
+        sku?.manufacturer || 'Không rõ',
+        sku?.name || 'SKU đã xóa',
+        record.type,
+        record.price1 ?? '',
+        record.price5 ?? '',
+        record.priceCarton ?? '',
+        record.expiryDate || '',
+        record.factoryCode || '',
+        record.facing,
+        rawPhotos.length,
+        photoFilenames.join('; '),
+      ];
+    });
+
+    const escapeCsv = (value: unknown): string => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = `\uFEFF${[headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n')}`;
+    return { csv, photos };
+  },
+
   // Fast Export - Generates structured JSON text for AI analysis and re-import
   exportJSON(surveyIds?: string[]): string {
     let surveys = this.getSurveys();

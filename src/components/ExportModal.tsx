@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { OfflineDB } from '../data/store';
-import { FileSpreadsheet, Bot, X, Check, Share2, Archive } from 'lucide-react';
+import { FileSpreadsheet, Bot, X, Check, Share2, Archive, Images } from 'lucide-react';
 import { createZip, dataUrlToBytes, textToBytes } from '../utils/zip';
 
 interface ExportModalProps {
@@ -101,6 +101,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     handleShareOrDownload(file);
   };
 
+  const handleExportExcelWithPhotos = () => {
+    const exportData = OfflineDB.exportCSVWithPhotos(selectedSurveyIds);
+    const zipBlob = createZip([
+      { path: 'KHAO_SAT_THI_TRUONG.csv', data: textToBytes(exportData.csv) },
+      ...exportData.photos.map(photo => ({
+        path: `photos/${photo.filename}`,
+        data: dataUrlToBytes(photo.dataUrl),
+      })),
+    ]);
+    const file = new File([zipBlob], 'KHAO_SAT_KEM_ANH.zip', { type: 'application/zip' });
+    handleShareOrDownload(file);
+  };
+
   const handleExportBackup = () => {
     const jsonContent = OfflineDB.exportJSON(selectedSurveyIds);
     const validationErrors = getExportValidationErrors(jsonContent);
@@ -168,7 +181,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </div>
           </button>
 
-          {/* Button 2: Xuất JSON cho AI */}
+          {/* Button 2: Xuất Excel kèm ảnh SKU */}
+          <button
+            id="btn-export-excel-with-photos"
+            onClick={handleExportExcelWithPhotos}
+            className="w-full text-left p-4 bg-teal-50/80 hover:bg-teal-100 active:bg-teal-200 border border-teal-200/80 rounded-xl flex items-start space-x-3.5 transition-all group"
+          >
+            <div className="p-2.5 bg-teal-600 text-white rounded-xl shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Images className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 text-base">Xuất Excel kèm ảnh</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                ZIP gồm CSV và ảnh chụp của từng SKU
+              </div>
+            </div>
+          </button>
+
+          {/* Button 3: Xuất JSON cho AI */}
           <button
             id="btn-export-json-ai"
             onClick={handleExportJSON}
@@ -185,7 +215,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </div>
           </button>
 
-          {/* Button 3: Hủy */}
+          {/* Button 4: Sao lưu đầy đủ */}
           <button
             id="btn-export-backup"
             onClick={handleExportBackup}

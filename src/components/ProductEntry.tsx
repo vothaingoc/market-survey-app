@@ -183,13 +183,6 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     }
   };
 
-  const handleSimulatePhoto = () => {
-    const index = photos.length + 1;
-    const cleanSkuName = sku.name.replace(/</g, '').replace(/>/g, '');
-    const mockSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%23b91c1c"/><rect x="30" y="30" width="240" height="140" fill="%23fff" stroke="%23ff0" stroke-width="4"/><text x="150" y="80" fill="%23b91c1c" font-family="sans-serif" font-weight="bold" font-size="18" text-anchor="middle">${cleanSkuName}</text><text x="150" y="115" fill="%23ff9f00" font-family="sans-serif" font-weight="bold" font-size="14" text-anchor="middle">Ảnh %23${index}</text><text x="150" y="150" fill="%23555" font-family="sans-serif" font-size="10" text-anchor="middle">MẪU KHẢO SÁT CHỤP</text></svg>`;
-    setPhotos(prev => [...prev, mockSvg]);
-  };
-
   const handleRemovePhoto = (index: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
@@ -581,7 +574,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
               </div>
             )}
 
-            <div className="flex items-center space-x-2">
+            <div>
               {/* Real File input */}
               <label className="flex-1 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 cursor-pointer shadow-xs flex items-center justify-center space-x-1.5 transition-colors">
                 <Camera className="w-4 h-4 text-slate-600" />
@@ -598,15 +591,6 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
                 />
               </label>
 
-              {/* Simulated Quick Photo */}
-              <button
-                id="btn-simulate-record-photo"
-                type="button"
-                onClick={handleSimulatePhoto}
-                className="bg-purple-50 hover:bg-purple-100 active:bg-purple-200 text-purple-800 text-xs font-bold px-3 py-2 rounded-xl border border-purple-200 transition-colors"
-              >
-                Giả lập ảnh
-              </button>
             </div>
 
             <span className="text-[10px] text-slate-400 block leading-tight">
