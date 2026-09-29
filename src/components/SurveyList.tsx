@@ -249,7 +249,11 @@ export const SurveyList: React.FC<SurveyListProps> = ({
             className="flex flex-col items-center justify-center py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg text-xs font-medium transition-all active:bg-emerald-200"
           >
             <Download className="w-5 h-5 mb-1 text-emerald-600" />
-            <span>Xuất Dữ Liệu</span>
+            <span>
+              {selectedSurveyIds.length > 0
+                ? `Xuất ${selectedSurveyIds.length} khảo sát`
+                : 'Xuất toàn bộ data'}
+            </span>
           </button>
         </div>
       </div>
