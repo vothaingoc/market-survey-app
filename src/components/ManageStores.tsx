@@ -81,7 +81,7 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
 
   const buildExportData = () => {
     const usedNames = new Set<string>();
-    return storesToExport.map(store => {
+    return storesToExport.map((store, index) => {
       let filename = '';
       let mimeType = '';
       let photoBytes: Uint8Array | null = null;
@@ -89,7 +89,7 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
       if (store.photo) {
         mimeType = getPhotoMimeType(store.photo);
         const extension = getPhotoExtension(mimeType);
-        const baseName = `${sanitizeFilename(store.name)}_storefront`;
+        const baseName = `${index + 1}. ${sanitizeFilename(store.name)}_storefront`;
         let candidate = `${baseName}.${extension}`;
         let duplicateIndex = 2;
         while (usedNames.has(candidate.toLocaleLowerCase())) {
@@ -101,15 +101,16 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
         photoBytes = dataUrlToBytes(store.photo);
       }
 
-      return { store, filename, mimeType, photoBytes };
+      return { store, sequence: index + 1, filename, mimeType, photoBytes };
     });
   };
 
   const escapeCsv = (value: unknown): string => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
   const createStoresCsv = (exportData: ReturnType<typeof buildExportData>): string => {
-    const headers = ['Tên điểm bán', 'Địa chỉ', 'GPS', 'Tên file ảnh', 'Loại ảnh', 'Dung lượng ảnh (byte)'];
-    const rows = exportData.map(({ store, filename, mimeType, photoBytes }) => [
+    const headers = ['STT', 'Tên điểm bán', 'Địa chỉ', 'GPS', 'Tên file ảnh', 'Loại ảnh', 'Dung lượng ảnh (byte)'];
+    const rows = exportData.map(({ store, sequence, filename, mimeType, photoBytes }) => [
+      sequence,
       store.name,
       store.address,
       store.gps || '',

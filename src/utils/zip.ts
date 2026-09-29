@@ -15,6 +15,7 @@ type ZipOutputFile = {
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const ZIP_UTF8_FLAG = 0x0800;
 
 const crcTable = new Uint32Array(256).map((_, index) => {
   let c = index;
@@ -90,7 +91,7 @@ export function createZip(files: ZipInputFile[]): Blob {
 
     writeUint32(localParts, 0x04034b50);
     writeUint16(localParts, 20);
-    writeUint16(localParts, 0);
+    writeUint16(localParts, ZIP_UTF8_FLAG);
     writeUint16(localParts, 0);
     writeUint16(localParts, 0);
     writeUint16(localParts, 0);
@@ -105,7 +106,7 @@ export function createZip(files: ZipInputFile[]): Blob {
     writeUint32(centralParts, 0x02014b50);
     writeUint16(centralParts, 20);
     writeUint16(centralParts, 20);
-    writeUint16(centralParts, 0);
+    writeUint16(centralParts, ZIP_UTF8_FLAG);
     writeUint16(centralParts, 0);
     writeUint16(centralParts, 0);
     writeUint16(centralParts, 0);
