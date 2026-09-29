@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { Store } from '../types';
+import { optimizeImageFile } from '../utils/imageOptimization';
 import { Camera, MapPin, Navigation, Save, X } from 'lucide-react';
 
 interface StoreFormProps {
@@ -21,29 +22,6 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
   const [isCapturingGps, setIsCapturingGps] = useState(false);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [gpsError, setGpsError] = useState('');
-
-  const compressCanvasToTarget = (sourceCanvas: HTMLCanvasElement, targetLength = 120_000): string => {
-    const attempts = [
-      { maxSide: 800, quality: 0.55 },
-      { maxSide: 640, quality: 0.45 },
-      { maxSide: 520, quality: 0.38 },
-      { maxSide: 420, quality: 0.32 },
-    ];
-
-    let bestResult = '';
-    for (const attempt of attempts) {
-      const scale = Math.min(1, attempt.maxSide / Math.max(sourceCanvas.width, sourceCanvas.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(sourceCanvas.width * scale));
-      canvas.height = Math.max(1, Math.round(sourceCanvas.height * scale));
-      const context = canvas.getContext('2d');
-      if (!context) continue;
-      context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height);
-      bestResult = canvas.toDataURL('image/jpeg', attempt.quality);
-      if (bestResult.length <= targetLength) break;
-    }
-    return bestResult;
-  };
 
   // Read the device's actual location. Never substitute simulated coordinates.
   const handleGetGps = () => {
@@ -76,35 +54,6 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     );
   };
 
-  const optimizePhotoDataUrl = (source: string): Promise<string> => new Promise((resolve, reject) => {
-    if (source.startsWith('data:image/svg+xml')) {
-      resolve(source);
-      return;
-    }
-
-    const image = new Image();
-    image.onerror = () => reject(new Error('Khong the doc anh'));
-    image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const context = canvas.getContext('2d');
-      if (!context) return reject(new Error('Khong the xu ly anh'));
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(compressCanvasToTarget(canvas));
-    };
-    image.src = source;
-  });
-
-  const optimizePhoto = (file: File): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      optimizePhotoDataUrl(reader.result as string).then(resolve).catch(reject);
-    };
-    reader.readAsDataURL(file);
-  });
-
   // Capture/upload storefront photo and compress it before storing in browser storage.
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -112,7 +61,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
       e.target.value = '';
       setIsProcessingPhoto(true);
       try {
-        setPhoto(await optimizePhoto(file));
+        setPhoto(await optimizeImageFile(file));
       } catch (error) {
         console.error('Error processing store photo', error);
         window.alert('Khong the xu ly anh vua chon. Vui long chup lai.');
@@ -136,13 +85,11 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     const finalName = name.trim() || 'Cửa hàng không tên (Mới)';
     const finalAddress = address.trim() || 'Chưa xác định địa chỉ';
     const finalGps = gps.trim();
-    const finalPhoto = photo ? await optimizePhotoDataUrl(photo) : null;
-
     await onSaveStore({
       name: finalName,
       address: finalAddress,
       gps: finalGps,
-      photo: finalPhoto || undefined,
+      photo: photo || undefined,
       isCustom: true
     });
   };
@@ -247,11 +194,11 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
           
           <div className="border-2 border-dashed border-slate-300 rounded-2xl p-4 flex flex-col items-center justify-center bg-white min-h-[140px] text-center relative overflow-hidden">
             {photo ? (
-              <div className="relative w-full h-full">
+              <div className="relative w-full rounded-xl bg-slate-100 overflow-hidden">
                 <img
                   src={photo}
                   alt="Mặt tiền điểm bán"
-                  className="w-full h-32 object-cover rounded-xl"
+                  className="block w-full h-auto max-h-64 object-contain rounded-xl"
                   referrerPolicy="no-referrer"
                 />
                 <button

@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SKU, DistributionType, SurveyRecord } from '../types';
 import { OfflineDB } from '../data/store';
+import { optimizeImageFile } from '../utils/imageOptimization';
 import { ArrowLeft, Plus, Minus, Camera, Save, RefreshCw, X, AlertCircle, ZoomIn } from 'lucide-react';
 
 const ACV_FACTORY_CODES = ['SG 1', 'SG 2', 'BD', 'HY', 'VL', 'DN', 'NV', 'BN', 'HV'];
@@ -161,37 +162,6 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   };
 
   // Photo handlers
-  const optimizePhotoDataUrl = (source: string): Promise<string> => new Promise((resolve, reject) => {
-    if (source.startsWith('data:image/svg+xml')) {
-      resolve(source);
-      return;
-    }
-
-    const image = new Image();
-    image.onerror = () => reject(new Error('Khong the doc anh'));
-    image.onload = () => {
-      const maxSide = 1000;
-      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      const context = canvas.getContext('2d');
-      if (!context) return reject(new Error('Khong the xu ly anh'));
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.6));
-    };
-    image.src = source;
-  });
-
-  const optimizePhoto = (file: File): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      optimizePhotoDataUrl(reader.result as string).then(resolve).catch(reject);
-    };
-    reader.readAsDataURL(file);
-  });
-
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
@@ -199,7 +169,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       e.target.value = '';
       setIsProcessingPhotos(true);
       try {
-        const newPhotoList = await Promise.all(fileArray.map(optimizePhoto));
+        const newPhotoList = await Promise.all(fileArray.map(optimizeImageFile));
         setPhotos(prev => [...prev, ...newPhotoList]);
       } catch (error) {
         console.error('Error processing photos', error);
@@ -241,7 +211,6 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     }
 
     try {
-      const optimizedPhotos = await Promise.all(photos.map(optimizePhotoDataUrl));
       const saved = await onSave({
         id: initialRecord?.id,
         surveyId,
@@ -254,7 +223,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
         factoryCode: isACV ? (factoryCode || null) : null,
         facing,
         photo: null,
-        photos: optimizedPhotos,
+        photos,
       }, continueSameSku);
 
       if (saved && continueSameSku) {
