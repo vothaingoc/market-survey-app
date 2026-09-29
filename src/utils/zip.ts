@@ -49,7 +49,11 @@ function readUint32(data: Uint8Array, offset: number): number {
 }
 
 export function dataUrlToBytes(dataUrl: string): Uint8Array {
-  const base64 = dataUrl.split(',')[1] || '';
+  const [metadata, payload = ''] = dataUrl.split(',', 2);
+  if (!metadata.includes(';base64')) {
+    return textEncoder.encode(decodeURIComponent(payload));
+  }
+  const base64 = payload;
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
