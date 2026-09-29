@@ -522,6 +522,7 @@ export const OfflineDB = {
         storeId: survey.storeId,
         storeName: store?.name || null,
         status: survey.status || null,
+        sourceSurveyId: survey.sourceSurveyId || null,
       };
     });
 
@@ -533,6 +534,9 @@ export const OfflineDB = {
       const expirationDate = normalizeIsoDate(record.expiryDate);
       if (!expirationDate && record.expiryDate) errors.push(`Invalid expiration date for ${record.id}: ${record.expiryDate}`);
       const rawPhotos = record.photos && record.photos.length > 0 ? record.photos : (record.photo ? [record.photo] : []);
+      const isCopiedSurvey = !!survey?.sourceSurveyId
+        || record.verificationStatus === 'copied'
+        || !!record.sourceSurveyId;
 
       return {
         observationId: record.id,
@@ -552,9 +556,9 @@ export const OfflineDB = {
         factoryCode: normalizeText(record.factoryCode),
         faceCount: record.facing ?? null,
         notes: null,
-        verificationStatus: record.verificationStatus || 'confirmed',
-        verifiedAt: record.verifiedAt || null,
-        sourceSurveyId: record.sourceSurveyId || null,
+        verificationStatus: isCopiedSurvey ? record.verificationStatus || 'confirmed' : null,
+        verifiedAt: isCopiedSurvey ? record.verifiedAt || null : null,
+        sourceSurveyId: isCopiedSurvey ? record.sourceSurveyId || null : null,
         photos: rawPhotos.map((photo, index) => photoToExport(photo, record.id, index)),
       };
     });
@@ -698,6 +702,7 @@ export const OfflineDB = {
         storeId: survey.storeId || surveyStoreById.get(survey.surveyId) || '',
         date,
         status: (survey.status || nextSurveysById.get(survey.surveyId)?.status || currentSurveys[0]?.status || DEFAULT_SURVEY_STATUS) as Survey['status'],
+        sourceSurveyId: normalizeText(survey.sourceSurveyId),
       });
     });
 

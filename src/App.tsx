@@ -139,6 +139,7 @@ export default function App() {
       storeId,
       date: formatCurrentTime(),
       status: 'đang thực hiện',
+      sourceSurveyId: previousSurvey.id,
     };
     if (!await OfflineDB.saveSurvey(newSurvey)) {
       window.alert('Không thể tạo đợt khảo sát trong IndexedDB. Vui lòng thử lại.');
@@ -307,17 +308,23 @@ export default function App() {
   ) => {
     const wasEditing = !!editingRecord;
     const savedAt = formatCurrentTime();
-    const verificationStatus = editingRecord?.verificationStatus === 'new'
-      ? 'new'
-      : editingRecord
-        ? 'confirmed'
-        : 'new';
+    const isCopiedSurvey = !!activeSurvey?.sourceSurveyId || records.some(record => (
+      record.surveyId === activeSurveyId
+      && (record.verificationStatus === 'copied' || !!record.sourceSurveyId)
+    ));
+    const verificationStatus = isCopiedSurvey
+      ? editingRecord?.verificationStatus === 'new'
+        ? 'new'
+        : editingRecord
+          ? 'confirmed'
+          : 'new'
+      : undefined;
     const newRecord: SurveyRecord = {
       ...recordData,
       id: recordData.id || `record_${Date.now()}`,
       verificationStatus,
-      verifiedAt: savedAt,
-      sourceSurveyId: editingRecord?.sourceSurveyId || null,
+      verifiedAt: isCopiedSurvey ? savedAt : null,
+      sourceSurveyId: isCopiedSurvey ? editingRecord?.sourceSurveyId || null : null,
       timestamp: savedAt,
     };
     const saved = await OfflineDB.saveRecord(newRecord);

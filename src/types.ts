@@ -48,4 +48,5 @@ export interface Survey {
   storeId: string;
   date: string; // YYYY-MM-DD HH:mm
   status: 'đang thực hiện' | 'đã hoàn thành';
+  sourceSurveyId?: string | null; // present only when this survey was created from previous data
 }

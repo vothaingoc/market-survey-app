@@ -44,6 +44,10 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
     return activeRecords.reduce((sum, r) => sum + r.facing, 0);
   }, [activeRecords]);
 
+  const isCopiedSurvey = !!survey.sourceSurveyId || activeRecords.some(record => (
+    record.verificationStatus === 'copied' || !!record.sourceSurveyId
+  ));
+
   return (
     <div id="entered-products-screen" className="flex flex-col h-full bg-slate-50">
       
@@ -129,7 +133,7 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
 
                     {/* Quick Edit & Delete Actions */}
                     <div className="flex items-center gap-1 shrink-0 self-center">
-                      {verificationStatus === 'copied' ? (
+                      {isCopiedSurvey && (verificationStatus === 'copied' ? (
                         <span className="whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-1 text-[8px] font-extrabold uppercase tracking-tight text-amber-700">
                           Chưa xác nhận
                         </span>
@@ -142,7 +146,7 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
                           <Check className="h-2.5 w-2.5" />
                           Đã xác nhận
                         </span>
-                      )}
+                      ))}
                       <button
                         id={`btn-edit-record-${record.id}`}
                         onClick={() => onEditRecord(record)}
