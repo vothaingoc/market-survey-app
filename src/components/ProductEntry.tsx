@@ -49,8 +49,11 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       setPrice1(initialRecord.price1 !== null ? String(initialRecord.price1) : '');
       setPrice5(initialRecord.price5 !== null ? String(initialRecord.price5) : '');
       setPriceCarton(initialRecord.priceCarton !== null ? String(initialRecord.priceCarton) : '');
-      // If it is stored formatted, try to strip formatting or keep it
-      setExpiryRaw(initialRecord.expiryDate.replace(/\//g, '').replace(/^20/, ''));
+      // Missing expiry stays empty so the surveyor can type immediately when returning to edit.
+      const storedExpiry = initialRecord.expiryDate?.trim() || '';
+      setExpiryRaw(/^(khong ro hsd|không rõ hsd)$/i.test(storedExpiry)
+        ? ''
+        : storedExpiry.replace(/\//g, '').replace(/^20/, ''));
       setFactoryCode(initialRecord.factoryCode || '');
       setFacing(initialRecord.facing);
       
@@ -207,7 +210,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     } else if (expiryRaw.length === 6) {
       finalExpiry = `20${expiryRaw.substring(0, 2)}/${expiryRaw.substring(2, 4)}/${expiryRaw.substring(4, 6)}`;
     } else {
-      finalExpiry = expiryRaw || 'Khong ro HSD';
+      finalExpiry = expiryRaw;
     }
 
     try {
