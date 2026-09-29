@@ -32,7 +32,7 @@ type JsonPhoto = {
   filename: string;
   mimeType: string;
   size: number;
-  type: 'product';
+  type: 'product' | 'storefront';
 };
 
 function isBlank(value: unknown): boolean {
@@ -123,15 +123,15 @@ function getDataUrlSize(dataUrl: string): number {
   return Math.ceil((payload.length * 3) / 4);
 }
 
-function photoToExport(photo: string, observationId: string, index: number): JsonPhoto {
+function photoToExport(photo: string, ownerId: string, index: number, type: JsonPhoto['type'] = 'product'): JsonPhoto {
   const mimeType = getPhotoMimeType(photo);
   const extension = mimeType.split('/')[1] || 'jpg';
   return {
-    id: `${observationId}_photo_${index + 1}`,
-    filename: `${observationId}_photo_${index + 1}.${extension}`,
+    id: `${ownerId}_photo_${index + 1}`,
+    filename: `${ownerId}_photo_${index + 1}.${extension}`,
     mimeType,
     size: getDataUrlSize(photo),
-    type: 'product',
+    type,
   };
 }
 
@@ -144,33 +144,137 @@ function validateUniqueIds(label: string, ids: string[], errors: string[]): void
   });
 }
 
-// Helper to get from localstorage with fallback
-function getLocal<T>(key: string, fallback: T): T {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : fallback;
-  } catch (e) {
-    console.error(`Error reading ${key} from localStorage`, e);
-    return fallback;
-  }
+const DATABASE_NAME = 'market-survey-offline';
+const DATABASE_VERSION = 1;
+const OBJECT_STORE_NAME = 'app-data';
+const STORAGE_KEYS = ['survey_stores', 'survey_skus', 'survey_list', 'survey_records'] as const;
+type StorageKey = typeof STORAGE_KEYS[number];
+
+type DatabaseCache = {
+  survey_stores: Store[];
+  survey_skus: SKU[];
+  survey_list: Survey[];
+  survey_records: SurveyRecord[];
+};
+
+const cache: DatabaseCache = {
+  survey_stores: [],
+  survey_skus: [],
+  survey_list: [],
+  survey_records: [],
+};
+
+let databasePromise: Promise<IDBDatabase> | null = null;
+let initializationPromise: Promise<void> | null = null;
+let initialized = false;
+
+function openDatabase(): Promise<IDBDatabase> {
+  if (databasePromise) return databasePromise;
+  databasePromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(OBJECT_STORE_NAME)) {
+        db.createObjectStore(OBJECT_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Could not open IndexedDB'));
+    request.onblocked = () => reject(new Error('IndexedDB upgrade was blocked'));
+  });
+  return databasePromise;
 }
 
-// Helper to set localstorage
-function setLocal<T>(key: string, value: T): boolean {
+function requestResult<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
+  });
+}
+
+async function readIndexedValue<T>(key: StorageKey): Promise<T | undefined> {
+  const db = await openDatabase();
+  const transaction = db.transaction(OBJECT_STORE_NAME, 'readonly');
+  return requestResult<T | undefined>(transaction.objectStore(OBJECT_STORE_NAME).get(key));
+}
+
+function transactionCompleted(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error('IndexedDB transaction failed'));
+    transaction.onabort = () => reject(transaction.error || new Error('IndexedDB transaction was aborted'));
+  });
+}
+
+async function writeIndexedValues(values: Partial<DatabaseCache>): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(OBJECT_STORE_NAME, 'readwrite');
+  const store = transaction.objectStore(OBJECT_STORE_NAME);
+  Object.entries(values).forEach(([key, value]) => store.put(value, key));
+  await transactionCompleted(transaction);
+}
+
+async function persist<K extends StorageKey>(key: K, value: DatabaseCache[K]): Promise<boolean> {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    await writeIndexedValues({ [key]: value });
+    cache[key] = value as DatabaseCache[K];
     return true;
-  } catch (e) {
-    console.error(`Error writing ${key} to localStorage`, e);
+  } catch (error) {
+    console.error(`Error writing ${key} to IndexedDB`, error);
     return false;
   }
 }
 
 export const OfflineDB = {
-  removeOsakaSeedSurveyData(): void {
-    const stores = getLocal<Store[]>('survey_stores', []);
-    const surveys = getLocal<Survey[]>('survey_list', []);
-    const records = getLocal<SurveyRecord[]>('survey_records', []);
+  async initialize(): Promise<void> {
+    if (initialized) return;
+    if (initializationPromise) return initializationPromise;
+
+    initializationPromise = (async () => {
+      const indexedValues = await Promise.all(STORAGE_KEYS.map(key => readIndexedValue(key)));
+      const nextCache: DatabaseCache = {
+        survey_stores: (indexedValues[0] as Store[] | undefined)
+          ?? INITIAL_STORES,
+        survey_skus: (indexedValues[1] as SKU[] | undefined)
+          ?? INITIAL_SKUS,
+        survey_list: (indexedValues[2] as Survey[] | undefined)
+          ?? [],
+        survey_records: (indexedValues[3] as SurveyRecord[] | undefined)
+          ?? [],
+      };
+
+      if (indexedValues.some(value => value === undefined)) {
+        await writeIndexedValues(nextCache);
+      }
+
+      cache.survey_stores = nextCache.survey_stores;
+      cache.survey_skus = nextCache.survey_skus;
+      cache.survey_list = nextCache.survey_list;
+      cache.survey_records = nextCache.survey_records;
+      initialized = true;
+
+      // Ask the browser to protect offline survey data from automatic eviction when supported.
+      if (navigator.storage?.persist) {
+        navigator.storage.persist().catch(error => {
+          console.warn('Persistent browser storage was not granted', error);
+        });
+      }
+    })().catch(error => {
+      initializationPromise = null;
+      throw error;
+    });
+
+    return initializationPromise;
+  },
+
+  isInitialized(): boolean {
+    return initialized;
+  },
+
+  async removeOsakaSeedSurveyData(): Promise<void> {
+    const stores = this.getStores();
+    const surveys = this.getSurveys();
+    const records = this.getRecords();
     const seedSurveyIds = new Set(
       surveys
         .filter(survey => (
@@ -183,114 +287,104 @@ export const OfflineDB = {
     const nextSurveys = surveys.filter(survey => !seedSurveyIds.has(survey.id));
     const nextRecords = records.filter(record => !seedSurveyIds.has(record.surveyId));
 
-    if (nextStores.length !== stores.length) {
-      setLocal('survey_stores', nextStores);
+    if (
+      nextStores.length !== stores.length
+      || nextSurveys.length !== surveys.length
+      || nextRecords.length !== records.length
+    ) {
+      await writeIndexedValues({
+        survey_stores: nextStores,
+        survey_list: nextSurveys,
+        survey_records: nextRecords,
+      });
+      cache.survey_stores = nextStores;
+      cache.survey_list = nextSurveys;
+      cache.survey_records = nextRecords;
     }
-    if (nextSurveys.length !== surveys.length) {
-      setLocal('survey_list', nextSurveys);
-    }
-    if (nextRecords.length !== records.length) {
-      setLocal('survey_records', nextRecords);
-    }
-    localStorage.removeItem('osaka_seed_imported_v1');
   },
 
   // Stores
   getStores(): Store[] {
-    const raw = localStorage.getItem('survey_stores');
-    if (raw === null) {
-      setLocal('survey_stores', INITIAL_STORES);
-      return INITIAL_STORES;
-    }
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      console.error('Error reading survey_stores from localStorage', e);
-      return [];
-    }
+    return cache.survey_stores;
   },
   
-  saveStore(store: Store): boolean {
-    const stores = this.getStores();
+  async saveStore(store: Store): Promise<boolean> {
+    const stores = [...this.getStores()];
     const index = stores.findIndex(s => s.id === store.id);
     if (index >= 0) {
       stores[index] = store;
     } else {
       stores.unshift(store); // Add newest first
     }
-    return setLocal('survey_stores', stores);
+    return persist('survey_stores', stores);
   },
 
-  deleteStore(id: string): void {
+  async deleteStore(id: string): Promise<boolean> {
     const stores = this.getStores().filter(s => s.id !== id);
-    setLocal('survey_stores', stores);
+    return persist('survey_stores', stores);
   },
 
   // SKUs
   getSKUs(): SKU[] {
-    const raw = localStorage.getItem('survey_skus');
-    if (raw === null) {
-      setLocal('survey_skus', INITIAL_SKUS);
-      return INITIAL_SKUS;
-    }
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      console.error('Error reading survey_skus from localStorage', e);
-      return [];
-    }
+    return cache.survey_skus;
   },
 
-  saveSKU(sku: SKU): void {
-    const skus = this.getSKUs();
+  async saveSKU(sku: SKU): Promise<boolean> {
+    const skus = [...this.getSKUs()];
     const index = skus.findIndex(s => s.id === sku.id);
     if (index >= 0) {
       skus[index] = sku;
     } else {
       skus.unshift(sku); // Add newest first
     }
-    setLocal('survey_skus', skus);
+    return persist('survey_skus', skus);
   },
 
-  deleteSKU(id: string): void {
+  async deleteSKU(id: string): Promise<boolean> {
     const skus = this.getSKUs().filter(s => s.id !== id);
-    setLocal('survey_skus', skus);
+    return persist('survey_skus', skus);
   },
 
   // Surveys
   getSurveys(): Survey[] {
-    return getLocal<Survey[]>('survey_list', []);
+    return cache.survey_list;
   },
 
-  saveSurvey(survey: Survey): void {
-    const surveys = this.getSurveys();
+  async saveSurvey(survey: Survey): Promise<boolean> {
+    const surveys = [...this.getSurveys()];
     const index = surveys.findIndex(s => s.id === survey.id);
     if (index >= 0) {
       surveys[index] = survey;
     } else {
       surveys.unshift(survey);
     }
-    setLocal('survey_list', surveys);
+    return persist('survey_list', surveys);
   },
 
-  deleteSurvey(id: string): void {
+  async deleteSurvey(id: string): Promise<boolean> {
     const surveys = this.getSurveys().filter(s => s.id !== id);
-    setLocal('survey_list', surveys);
-    // Delete all records in this survey
     const records = this.getRecords().filter(r => r.surveyId !== id);
-    setLocal('survey_records', records);
+    try {
+      await writeIndexedValues({ survey_list: surveys, survey_records: records });
+      cache.survey_list = surveys;
+      cache.survey_records = records;
+      return true;
+    } catch (error) {
+      console.error('Error deleting survey from IndexedDB', error);
+      return false;
+    }
   },
 
   // Survey Records
   getRecords(): SurveyRecord[] {
-    return getLocal<SurveyRecord[]>('survey_records', []);
+    return cache.survey_records;
   },
 
   getRecordsForSurvey(surveyId: string): SurveyRecord[] {
     return this.getRecords().filter(r => r.surveyId === surveyId);
   },
 
-  saveRecord(record: SurveyRecord): boolean {
+  async saveRecord(record: SurveyRecord): Promise<boolean> {
     const photos = record.photos && record.photos.length > 0
       ? record.photos
       : (record.photo ? [record.photo] : []);
@@ -311,12 +405,12 @@ export const OfflineDB = {
     } else {
       records.unshift(normalizedRecord); // Add newest first so it's recorded in shelf order
     }
-    return setLocal('survey_records', records);
+    return persist('survey_records', records);
   },
 
-  deleteRecord(id: string): void {
+  async deleteRecord(id: string): Promise<boolean> {
     const records = this.getRecords().filter(r => r.id !== id);
-    setLocal('survey_records', records);
+    return persist('survey_records', records);
   },
 
   // Fast Export - Generates standard CSV text for Vietnam Market Survey
@@ -478,6 +572,7 @@ export const OfflineDB = {
         storeName: store.name || null,
         address: store.address || null,
         gps: parseGps(store.gps),
+        photos: store.photo ? [photoToExport(store.photo, `${store.id}_storefront`, 0, 'storefront')] : [],
       })),
       manufacturerMaster: manufacturerNames.map(name => ({
         manufacturerId: manufacturerIdMap.get(name) || null,
@@ -505,7 +600,14 @@ export const OfflineDB = {
       surveys = surveys.filter(s => surveyIds.includes(s.id));
     }
     const surveyIdSet = new Set(surveys.map(s => s.id));
-    return this.getRecords()
+    const selectedStoreIds = new Set(surveys.map(survey => survey.storeId));
+    const storefrontPhotos = this.getStores()
+      .filter(store => selectedStoreIds.has(store.id) && !!store.photo)
+      .map(store => {
+        const exportedPhoto = photoToExport(store.photo!, `${store.id}_storefront`, 0, 'storefront');
+        return { filename: exportedPhoto.filename, mimeType: exportedPhoto.mimeType, dataUrl: store.photo! };
+      });
+    const productPhotos = this.getRecords()
       .filter(record => surveyIdSet.has(record.surveyId))
       .flatMap(record => {
         const rawPhotos = record.photos && record.photos.length > 0 ? record.photos : (record.photo ? [record.photo] : []);
@@ -518,9 +620,10 @@ export const OfflineDB = {
           };
         });
       });
+    return [...storefrontPhotos, ...productPhotos];
   },
 
-  importJSON(jsonText: string, photoDataByFilename?: Record<string, string>): { ok: boolean; imported: { surveys: number; stores: number; skus: number; observations: number }; errors: string[] } {
+  async importJSON(jsonText: string, photoDataByFilename?: Record<string, string>): Promise<{ ok: boolean; imported: { surveys: number; stores: number; skus: number; observations: number }; errors: string[] }> {
     const errors: string[] = [];
     let parsed: any;
     try {
@@ -554,6 +657,9 @@ export const OfflineDB = {
         name: store.storeName || '',
         address: store.address || '',
         gps: stringifyGps(store.gps),
+        photo: Array.isArray(store.photos) && store.photos[0]?.filename
+          ? photoDataByFilename?.[store.photos[0].filename] || nextStoresById.get(store.storeId)?.photo
+          : nextStoresById.get(store.storeId)?.photo,
       });
     });
 
@@ -628,11 +734,26 @@ export const OfflineDB = {
       });
     });
 
-    const savedStores = setLocal('survey_stores', Array.from(nextStoresById.values()));
-    const savedSkus = setLocal('survey_skus', Array.from(nextSkusById.values()));
-    const savedSurveys = setLocal('survey_list', Array.from(nextSurveysById.values()));
-    const savedRecords = setLocal('survey_records', Array.from(nextRecordsById.values()));
-    const ok = savedStores && savedSkus && savedSurveys && savedRecords;
+    const nextStores = Array.from(nextStoresById.values());
+    const nextSkus = Array.from(nextSkusById.values());
+    const nextSurveys = Array.from(nextSurveysById.values());
+    const nextRecords = Array.from(nextRecordsById.values());
+    let ok = false;
+    try {
+      await writeIndexedValues({
+        survey_stores: nextStores,
+        survey_skus: nextSkus,
+        survey_list: nextSurveys,
+        survey_records: nextRecords,
+      });
+      cache.survey_stores = nextStores;
+      cache.survey_skus = nextSkus;
+      cache.survey_list = nextSurveys;
+      cache.survey_records = nextRecords;
+      ok = true;
+    } catch (error) {
+      console.error('Could not import data into IndexedDB', error);
+    }
 
     return {
       ok,
@@ -642,18 +763,28 @@ export const OfflineDB = {
         skus: (parsed.skuMaster || []).length,
         observations: parsed.observations.length,
       },
-      errors: ok ? [] : ['Could not save imported data to browser storage'],
+      errors: ok ? [] : ['Could not save imported data to IndexedDB'],
     };
   },
 
   // Reset entire DB for testing
-  resetAll(): void {
-    localStorage.removeItem('survey_stores');
-    localStorage.removeItem('survey_skus');
-    localStorage.removeItem('survey_list');
-    localStorage.removeItem('survey_records');
-    localStorage.removeItem('osaka_seed_imported_v1');
-    this.getStores(); // triggers re-initialization
-    this.getSKUs();   // triggers re-initialization
+  async resetAll(): Promise<boolean> {
+    const nextCache: DatabaseCache = {
+      survey_stores: INITIAL_STORES,
+      survey_skus: INITIAL_SKUS,
+      survey_list: [],
+      survey_records: [],
+    };
+    try {
+      await writeIndexedValues(nextCache);
+      cache.survey_stores = nextCache.survey_stores;
+      cache.survey_skus = nextCache.survey_skus;
+      cache.survey_list = nextCache.survey_list;
+      cache.survey_records = nextCache.survey_records;
+      return true;
+    } catch (error) {
+      console.error('Could not reset IndexedDB', error);
+      return false;
+    }
   }
 };

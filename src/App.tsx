@@ -24,6 +24,8 @@ export default function App() {
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [editingRecord, setEditingRecord] = useState<SurveyRecord | null>(null);
   const [pendingStoreChoiceId, setPendingStoreChoiceId] = useState<string | null>(null);
+  const [databaseReady, setDatabaseReady] = useState(false);
+  const [databaseError, setDatabaseError] = useState<string | null>(null);
 
   // Synced local DB states
   const [surveys, setSurveys] = useState<Survey[]>([]);
@@ -62,8 +64,20 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    OfflineDB.removeOsakaSeedSurveyData();
-    refreshData();
+    let active = true;
+    (async () => {
+      try {
+        await OfflineDB.initialize();
+        await OfflineDB.removeOsakaSeedSurveyData();
+        if (!active) return;
+        refreshData();
+        setDatabaseReady(true);
+      } catch (error) {
+        console.error('Could not initialize IndexedDB', error);
+        if (active) setDatabaseError('Không thể mở bộ nhớ IndexedDB. Vui lòng đóng app rồi mở lại.');
+      }
+    })();
+    return () => { active = false; };
   }, []);
 
   // --- ACTIONS ---
@@ -96,22 +110,26 @@ export default function App() {
     setScreen(screen);
   };
 
-  const createBlankSurvey = (storeId: string) => {
+  const createBlankSurvey = async (storeId: string) => {
     const newSurvey: Survey = {
       id: `survey_${Date.now()}`,
       storeId,
       date: formatCurrentTime(),
       status: 'đang thực hiện',
     };
-    OfflineDB.saveSurvey(newSurvey);
+    const saved = await OfflineDB.saveSurvey(newSurvey);
+    if (!saved) {
+      window.alert('Không thể lưu đợt khảo sát vào IndexedDB. Vui lòng thử lại.');
+      return;
+    }
     refreshData();
     openSurvey(newSurvey.id);
   };
 
-  const createSurveyFromPrevious = (storeId: string) => {
+  const createSurveyFromPrevious = async (storeId: string) => {
     const previousSurvey = getLatestSurveyForStore(storeId);
     if (!previousSurvey) {
-      createBlankSurvey(storeId);
+      await createBlankSurvey(storeId);
       return;
     }
 
@@ -122,11 +140,15 @@ export default function App() {
       date: formatCurrentTime(),
       status: 'đang thực hiện',
     };
-    OfflineDB.saveSurvey(newSurvey);
+    if (!await OfflineDB.saveSurvey(newSurvey)) {
+      window.alert('Không thể tạo đợt khảo sát trong IndexedDB. Vui lòng thử lại.');
+      return;
+    }
 
     const previousRecords = OfflineDB.getRecords().filter(record => record.surveyId === previousSurvey.id);
-    previousRecords.forEach((record, index) => {
-      OfflineDB.saveRecord({
+    for (let index = 0; index < previousRecords.length; index += 1) {
+      const record = previousRecords[index];
+      const saved = await OfflineDB.saveRecord({
         ...record,
         id: `record_${timestamp}_${index + 1}`,
         surveyId: newSurvey.id,
@@ -134,14 +156,18 @@ export default function App() {
         photos: [],
         timestamp: formatCurrentTime(),
       });
-    });
+      if (!saved) {
+        window.alert('Không thể sao chép toàn bộ dữ liệu kỳ trước vào IndexedDB.');
+        break;
+      }
+    }
 
     refreshData();
     openSurvey(newSurvey.id, previousRecords.length > 0 ? 'entered-products' : 'product-selection');
   };
 
   // Selection of a store to create/resume survey
-  const handleSelectStore = (storeId: string) => {
+  const handleSelectStore = async (storeId: string) => {
     setEditingRecord(null);
     const currentSurveys = OfflineDB.getSurveys();
 
@@ -162,11 +188,11 @@ export default function App() {
       return;
     }
 
-    createBlankSurvey(storeId);
+    await createBlankSurvey(storeId);
   };
 
   // Creating or editing a store from the field form
-  const handleSaveStore = (storeData: Omit<Store, 'id'>) => {
+  const handleSaveStore = async (storeData: Omit<Store, 'id'>) => {
     const currentStores = OfflineDB.getStores();
     const currentSurveys = OfflineDB.getSurveys();
 
@@ -175,9 +201,9 @@ export default function App() {
         ...editingStore,
         ...storeData,
       };
-      const saved = OfflineDB.saveStore(updatedStore);
+      const saved = await OfflineDB.saveStore(updatedStore);
       if (!saved) {
-        window.alert('Khong the luu anh diem ban vi bo nho trinh duyet khong du. Vui long xoa bot anh hoac xuat sao luu roi thu lai.');
+        window.alert('Không thể lưu điểm bán vào IndexedDB. Vui lòng đóng app, mở lại và thử lần nữa.');
         return;
       }
       const nextStores = currentStores.map(s => s.id === updatedStore.id ? updatedStore : s);
@@ -190,9 +216,9 @@ export default function App() {
         ...storeData,
         id: newStoreId,
       };
-      const saved = OfflineDB.saveStore(newStore);
+      const saved = await OfflineDB.saveStore(newStore);
       if (!saved) {
-        window.alert('Khong the luu diem ban vi bo nho trinh duyet khong du. Vui long xoa bot anh hoac xuat sao luu roi thu lai.');
+        window.alert('Không thể lưu điểm bán vào IndexedDB. Vui lòng đóng app, mở lại và thử lần nữa.');
         return;
       }
 
@@ -203,7 +229,11 @@ export default function App() {
         date: formatCurrentTime(),
         status: 'đang thực hiện',
       };
-      OfflineDB.saveSurvey(newSurvey);
+      if (!await OfflineDB.saveSurvey(newSurvey)) {
+        window.alert('Điểm bán đã được lưu nhưng chưa thể tạo đợt khảo sát. Vui lòng thử lại.');
+        refreshData();
+        return;
+      }
 
       setStores([...currentStores, newStore]);
       setSurveys([...currentSurveys, newSurvey]);
@@ -220,8 +250,8 @@ export default function App() {
   };
 
   // Delete an entire survey session
-  const handleDeleteSurvey = (surveyId: string) => {
-    OfflineDB.deleteSurvey(surveyId);
+  const handleDeleteSurvey = async (surveyId: string) => {
+    if (!await OfflineDB.deleteSurvey(surveyId)) return;
     if (activeSurveyId === surveyId) {
       setActiveSurveyId(null);
     }
@@ -230,7 +260,7 @@ export default function App() {
   };
 
   // Adding custom SKU from inside product selection screen
-  const handleAddNewSku = (name: string, manufacturer: string) => {
+  const handleAddNewSku = async (name: string, manufacturer: string) => {
     setEditingRecord(null);
     const newSkuId = `sku_${Date.now()}`;
     const newSku: SKU = {
@@ -239,7 +269,7 @@ export default function App() {
       manufacturer,
       isCustom: true,
     };
-    OfflineDB.saveSKU(newSku);
+    if (!await OfflineDB.saveSKU(newSku)) return;
     refreshData();
     // Auto-select this SKU immediately for entering data
     setActiveSkuId(newSkuId);
@@ -266,7 +296,7 @@ export default function App() {
   };
 
   // Saving product survey record
-  const handleSaveProductRecord = (
+  const handleSaveProductRecord = async (
     recordData: Omit<SurveyRecord, 'id' | 'timestamp'> & { id?: string },
     continueSameSku: boolean
   ) => {
@@ -276,9 +306,9 @@ export default function App() {
       id: recordData.id || `record_${Date.now()}`,
       timestamp: formatCurrentTime(),
     };
-    const saved = OfflineDB.saveRecord(newRecord);
+    const saved = await OfflineDB.saveRecord(newRecord);
     if (!saved) {
-      window.alert('Khong the luu anh vao bo nho cua trinh duyet. Anh da duoc nen, vui long thu lai hoac xoa bot anh/du lieu cu neu van bi lap lai.');
+      window.alert('Không thể lưu bản ghi vào IndexedDB. Vui lòng đóng app, mở lại và thử lần nữa.');
       return false;
     }
     refreshData();
@@ -292,17 +322,17 @@ export default function App() {
   };
 
   // Deleting a recorded item inside a survey
-  const handleDeleteRecord = (recordId: string) => {
-    OfflineDB.deleteRecord(recordId);
+  const handleDeleteRecord = async (recordId: string) => {
+    if (!await OfflineDB.deleteRecord(recordId)) return;
     refreshData();
   };
 
   // Finish a survey đợt
-  const handleFinishSurveySession = () => {
+  const handleFinishSurveySession = async () => {
     if (activeSurveyId) {
       const s = surveys.find(item => item.id === activeSurveyId);
       if (s) {
-        OfflineDB.saveSurvey({
+        await OfflineDB.saveSurvey({
           ...s,
           status: 'đã hoàn thành',
         });
@@ -314,28 +344,28 @@ export default function App() {
   };
 
   // Global delete SKU
-  const handleDeleteMasterSku = (skuId: string) => {
-    OfflineDB.deleteSKU(skuId);
+  const handleDeleteMasterSku = async (skuId: string) => {
+    if (!await OfflineDB.deleteSKU(skuId)) return;
     refreshData();
   };
 
   // Global delete store
-  const handleDeleteMasterStore = (storeId: string) => {
-    OfflineDB.deleteStore(storeId);
+  const handleDeleteMasterStore = async (storeId: string) => {
+    if (!await OfflineDB.deleteStore(storeId)) return;
     refreshData();
   };
 
   // Manage custom adding SKU
-  const handleAddMasterSku = (skuData: Omit<SKU, 'id'>) => {
-    OfflineDB.saveSKU({
+  const handleAddMasterSku = async (skuData: Omit<SKU, 'id'>) => {
+    if (!await OfflineDB.saveSKU({
       ...skuData,
       id: `sku_${Date.now()}`,
-    });
+    })) return;
     refreshData();
   };
 
-  const handleUpdateMasterSku = (sku: SKU) => {
-    OfflineDB.saveSKU(sku);
+  const handleUpdateMasterSku = async (sku: SKU) => {
+    if (!await OfflineDB.saveSKU(sku)) return;
     refreshData();
   };
 
@@ -521,7 +551,7 @@ export default function App() {
           <div className="border-t border-slate-800 pt-3 space-y-2">
             <div className="flex items-start space-x-2 text-xs">
               <span className="bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded font-bold">1</span>
-              <span><strong className="text-slate-200">Ngoại tuyến 100%</strong>: Dữ liệu lưu cục bộ trong LocalStorage. Không lo mất mạng trong kho siêu thị.</span>
+              <span><strong className="text-slate-200">Ngoại tuyến 100%</strong>: Dữ liệu và ảnh được lưu cục bộ trong IndexedDB. Không lo mất mạng trong kho siêu thị.</span>
             </div>
             <div className="flex items-start space-x-2 text-xs">
               <span className="bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded font-bold">2</span>
@@ -537,7 +567,19 @@ export default function App() {
 
       {/* Primary Mobile Container (Fills screen on real phone, centered card on desktop) */}
       <div className="w-full max-w-md h-screen md:h-[840px] md:rounded-3xl bg-white border border-slate-800 md:shadow-2xl overflow-hidden relative flex flex-col">
-        {renderActiveScreen()}
+        {!databaseReady ? (
+          <div className="h-full flex items-center justify-center bg-slate-50 p-6 text-center">
+            <div>
+              <div className="w-10 h-10 mx-auto mb-4 rounded-full border-4 border-emerald-100 border-t-emerald-600 animate-spin" />
+              <p className="font-bold text-slate-800">
+                {databaseError || 'Đang chuẩn bị bộ nhớ ngoại tuyến...'}
+              </p>
+              {!databaseError && (
+                <p className="text-xs text-slate-500 mt-2">Đang mở dữ liệu khảo sát trên thiết bị.</p>
+              )}
+            </div>
+          </div>
+        ) : renderActiveScreen()}
         {pendingStoreChoice && pendingPreviousSurvey && (
           <div className="absolute inset-0 z-50 bg-slate-950/70 flex items-end sm:items-center justify-center p-4">
             <div className="w-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">

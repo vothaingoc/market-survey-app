@@ -9,7 +9,7 @@ import { Camera, MapPin, Navigation, Save, X } from 'lucide-react';
 
 interface StoreFormProps {
   initialStore?: Store | null;
-  onSaveStore: (store: Omit<Store, 'id'>) => void;
+  onSaveStore: (store: Omit<Store, 'id'>) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -21,6 +21,29 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
   const [isCapturingGps, setIsCapturingGps] = useState(false);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [gpsError, setGpsError] = useState('');
+
+  const compressCanvasToTarget = (sourceCanvas: HTMLCanvasElement, targetLength = 120_000): string => {
+    const attempts = [
+      { maxSide: 800, quality: 0.55 },
+      { maxSide: 640, quality: 0.45 },
+      { maxSide: 520, quality: 0.38 },
+      { maxSide: 420, quality: 0.32 },
+    ];
+
+    let bestResult = '';
+    for (const attempt of attempts) {
+      const scale = Math.min(1, attempt.maxSide / Math.max(sourceCanvas.width, sourceCanvas.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+      canvas.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) continue;
+      context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height);
+      bestResult = canvas.toDataURL('image/jpeg', attempt.quality);
+      if (bestResult.length <= targetLength) break;
+    }
+    return bestResult;
+  };
 
   // Read the device's actual location. Never substitute simulated coordinates.
   const handleGetGps = () => {
@@ -62,15 +85,13 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     const image = new Image();
     image.onerror = () => reject(new Error('Khong the doc anh'));
     image.onload = () => {
-      const maxSide = 1000;
-      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.width = image.width;
+      canvas.height = image.height;
       const context = canvas.getContext('2d');
       if (!context) return reject(new Error('Khong the xu ly anh'));
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.6));
+      resolve(compressCanvasToTarget(canvas));
     };
     image.src = source;
   });
@@ -117,7 +138,7 @@ export const StoreForm: React.FC<StoreFormProps> = ({ initialStore, onSaveStore,
     const finalGps = gps.trim();
     const finalPhoto = photo ? await optimizePhotoDataUrl(photo) : null;
 
-    onSaveStore({
+    await onSaveStore({
       name: finalName,
       address: finalAddress,
       gps: finalGps,

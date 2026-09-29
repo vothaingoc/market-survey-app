@@ -163,6 +163,13 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
         text = bytesToText(surveyJson.data);
         const parsed = JSON.parse(text);
         const photoMimeByFilename = new Map<string, string>();
+        parsed.stores?.forEach((store: any) => {
+          store.photos?.forEach((photo: any) => {
+            if (photo?.filename && photo?.mimeType) {
+              photoMimeByFilename.set(photo.filename, photo.mimeType);
+            }
+          });
+        });
         parsed.observations?.forEach((observation: any) => {
           observation.photos?.forEach((photo: any) => {
             if (photo?.filename && photo?.mimeType) {
@@ -180,7 +187,7 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
         text = await file.text();
       }
 
-      const result = OfflineDB.importJSON(text, photoDataByFilename);
+      const result = await OfflineDB.importJSON(text, photoDataByFilename);
       if (!result.ok) {
         setImportMessage(`Khong import duoc file sao luu: ${result.errors.join('; ')}`);
         return;
@@ -425,8 +432,8 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
         message="BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ DỮ LIỆU KHẢO SÁT? Thao tác này sẽ dọn sạch lịch sử và không thể khôi phục!"
         confirmText="Xóa sạch"
         cancelText="Hủy"
-        onConfirm={() => {
-          OfflineDB.resetAll();
+        onConfirm={async () => {
+          await OfflineDB.resetAll();
           onDataReset();
           setShowResetConfirm(false);
         }}

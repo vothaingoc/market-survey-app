@@ -14,7 +14,7 @@ interface ProductEntryProps {
   sku: SKU;
   surveyId: string;
   initialRecord?: SurveyRecord | null; // if editing
-  onSave: (record: Omit<SurveyRecord, 'id' | 'timestamp'> & { id?: string }, continueSameSku: boolean) => boolean;
+  onSave: (record: Omit<SurveyRecord, 'id' | 'timestamp'> & { id?: string }, continueSameSku: boolean) => Promise<boolean>;
   onCancel: () => void;
 }
 
@@ -242,7 +242,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
     try {
       const optimizedPhotos = await Promise.all(photos.map(optimizePhotoDataUrl));
-      const saved = onSave({
+      const saved = await onSave({
         id: initialRecord?.id,
         surveyId,
         skuId: sku.id,
