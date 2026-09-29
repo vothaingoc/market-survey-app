@@ -152,6 +152,8 @@ export default function App() {
         ...record,
         id: `record_${timestamp}_${index + 1}`,
         surveyId: newSurvey.id,
+        expiryDate: '',
+        factoryCode: null,
         photo: null,
         photos: [],
         timestamp: formatCurrentTime(),
@@ -612,7 +614,7 @@ export default function App() {
                   </div>
                   <div>
                     <div className="font-extrabold text-slate-900 text-sm">Tạo từ data kỳ trước</div>
-                    <div className="text-xs text-slate-500 mt-0.5">Copy giá, HSD, loại hàng, facing và mã nhà máy. Không copy ảnh.</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Copy giá, loại hàng và facing. HSD, mã nhà máy và ảnh sẽ để trống.</div>
                   </div>
                 </button>
 
