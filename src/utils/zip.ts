@@ -80,51 +80,55 @@ export function bytesToText(data: Uint8Array): string {
 }
 
 export function createZip(files: ZipInputFile[]): Blob {
-  const localParts: number[] = [];
-  const centralParts: number[] = [];
+  const localParts: BlobPart[] = [];
+  const centralParts: BlobPart[] = [];
   let offset = 0;
 
   files.forEach(file => {
     const filename = textEncoder.encode(file.path.replace(/\\/g, '/'));
     const checksum = crc32(file.data);
     const localOffset = offset;
+    const localHeader: number[] = [];
 
-    writeUint32(localParts, 0x04034b50);
-    writeUint16(localParts, 20);
-    writeUint16(localParts, ZIP_UTF8_FLAG);
-    writeUint16(localParts, 0);
-    writeUint16(localParts, 0);
-    writeUint16(localParts, 0);
-    writeUint32(localParts, checksum);
-    writeUint32(localParts, file.data.length);
-    writeUint32(localParts, file.data.length);
-    writeUint16(localParts, filename.length);
-    writeUint16(localParts, 0);
-    localParts.push(...filename, ...file.data);
+    writeUint32(localHeader, 0x04034b50);
+    writeUint16(localHeader, 20);
+    writeUint16(localHeader, ZIP_UTF8_FLAG);
+    writeUint16(localHeader, 0);
+    writeUint16(localHeader, 0);
+    writeUint16(localHeader, 0);
+    writeUint32(localHeader, checksum);
+    writeUint32(localHeader, file.data.length);
+    writeUint32(localHeader, file.data.length);
+    writeUint16(localHeader, filename.length);
+    writeUint16(localHeader, 0);
+    localParts.push(new Uint8Array(localHeader), filename, file.data);
     offset += 30 + filename.length + file.data.length;
 
-    writeUint32(centralParts, 0x02014b50);
-    writeUint16(centralParts, 20);
-    writeUint16(centralParts, 20);
-    writeUint16(centralParts, ZIP_UTF8_FLAG);
-    writeUint16(centralParts, 0);
-    writeUint16(centralParts, 0);
-    writeUint16(centralParts, 0);
-    writeUint32(centralParts, checksum);
-    writeUint32(centralParts, file.data.length);
-    writeUint32(centralParts, file.data.length);
-    writeUint16(centralParts, filename.length);
-    writeUint16(centralParts, 0);
-    writeUint16(centralParts, 0);
-    writeUint16(centralParts, 0);
-    writeUint16(centralParts, 0);
-    writeUint32(centralParts, 0);
-    writeUint32(centralParts, localOffset);
-    centralParts.push(...filename);
+    const centralHeader: number[] = [];
+    writeUint32(centralHeader, 0x02014b50);
+    writeUint16(centralHeader, 20);
+    writeUint16(centralHeader, 20);
+    writeUint16(centralHeader, ZIP_UTF8_FLAG);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint32(centralHeader, checksum);
+    writeUint32(centralHeader, file.data.length);
+    writeUint32(centralHeader, file.data.length);
+    writeUint16(centralHeader, filename.length);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint32(centralHeader, 0);
+    writeUint32(centralHeader, localOffset);
+    centralParts.push(new Uint8Array(centralHeader), filename);
   });
 
   const centralOffset = offset;
-  offset += centralParts.length;
+  const centralSize = files.reduce((size, file) => (
+    size + 46 + textEncoder.encode(file.path.replace(/\\/g, '/')).length
+  ), 0);
 
   const endParts: number[] = [];
   writeUint32(endParts, 0x06054b50);
@@ -132,13 +136,13 @@ export function createZip(files: ZipInputFile[]): Blob {
   writeUint16(endParts, 0);
   writeUint16(endParts, files.length);
   writeUint16(endParts, files.length);
-  writeUint32(endParts, centralParts.length);
+  writeUint32(endParts, centralSize);
   writeUint32(endParts, centralOffset);
   writeUint16(endParts, 0);
 
   return new Blob([
-    new Uint8Array(localParts),
-    new Uint8Array(centralParts),
+    ...localParts,
+    ...centralParts,
     new Uint8Array(endParts),
   ], { type: 'application/zip' });
 }

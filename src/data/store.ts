@@ -145,10 +145,28 @@ function validateUniqueIds(label: string, ids: string[], errors: string[]): void
 }
 
 const DATABASE_NAME = 'market-survey-offline';
-const DATABASE_VERSION = 1;
-const OBJECT_STORE_NAME = 'app-data';
-const STORAGE_KEYS = ['survey_stores', 'survey_skus', 'survey_list', 'survey_records'] as const;
-type StorageKey = typeof STORAGE_KEYS[number];
+const DATABASE_VERSION = 3;
+const LEGACY_OBJECT_STORE_NAME = 'app-data';
+const STORE_OBJECT_STORE = 'stores';
+const SKU_OBJECT_STORE = 'skus';
+const SURVEY_OBJECT_STORE = 'surveys';
+const RECORD_OBJECT_STORE = 'records';
+const PHOTO_OBJECT_STORE = 'photos';
+const META_OBJECT_STORE = 'meta';
+const NORMALIZED_SCHEMA_MARKER = 'normalized-schema-v2';
+const STORE_ORDER_KEY = 'store-order';
+const SKU_ORDER_KEY = 'sku-order';
+const SURVEY_ORDER_KEY = 'survey-order';
+const RECORD_ORDER_KEY = 'record-order';
+type StoredPhoto = {
+  id: string;
+  ownerKey: string;
+  position: number;
+  blob: Blob;
+};
+
+type StoredStore = Omit<Store, 'photo'>;
+type StoredRecord = Omit<SurveyRecord, 'photo' | 'photos'>;
 
 type DatabaseCache = {
   survey_stores: Store[];
@@ -174,11 +192,21 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(OBJECT_STORE_NAME)) {
-        db.createObjectStore(OBJECT_STORE_NAME);
+      if (db.objectStoreNames.contains(LEGACY_OBJECT_STORE_NAME)) db.deleteObjectStore(LEGACY_OBJECT_STORE_NAME);
+      if (!db.objectStoreNames.contains(STORE_OBJECT_STORE)) db.createObjectStore(STORE_OBJECT_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(SKU_OBJECT_STORE)) db.createObjectStore(SKU_OBJECT_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(SURVEY_OBJECT_STORE)) db.createObjectStore(SURVEY_OBJECT_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(RECORD_OBJECT_STORE)) db.createObjectStore(RECORD_OBJECT_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(META_OBJECT_STORE)) db.createObjectStore(META_OBJECT_STORE);
+      if (!db.objectStoreNames.contains(PHOTO_OBJECT_STORE)) {
+        const photoStore = db.createObjectStore(PHOTO_OBJECT_STORE, { keyPath: 'id' });
+        photoStore.createIndex('ownerKey', 'ownerKey', { unique: false });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error || new Error('Could not open IndexedDB'));
     request.onblocked = () => reject(new Error('IndexedDB upgrade was blocked'));
   });
@@ -192,12 +220,6 @@ function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
-async function readIndexedValue<T>(key: StorageKey): Promise<T | undefined> {
-  const db = await openDatabase();
-  const transaction = db.transaction(OBJECT_STORE_NAME, 'readonly');
-  return requestResult<T | undefined>(transaction.objectStore(OBJECT_STORE_NAME).get(key));
-}
-
 function transactionCompleted(transaction: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
@@ -206,23 +228,154 @@ function transactionCompleted(transaction: IDBTransaction): Promise<void> {
   });
 }
 
-async function writeIndexedValues(values: Partial<DatabaseCache>): Promise<void> {
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [metadata, payload = ''] = dataUrl.split(',', 2);
+  const mimeType = metadata.match(/^data:([^;,]+)/)?.[1] || 'application/octet-stream';
+  if (!metadata.includes(';base64')) {
+    return new Blob([decodeURIComponent(payload)], { type: mimeType });
+  }
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mimeType });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Could not read stored photo'));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function storeOwnerKey(storeId: string): string {
+  return `store:${storeId}`;
+}
+
+function recordOwnerKey(recordId: string): string {
+  return `record:${recordId}`;
+}
+
+function toStoredStore(store: Store): StoredStore {
+  const { photo: _photo, ...stored } = store;
+  return stored;
+}
+
+function toStoredRecord(record: SurveyRecord): StoredRecord {
+  const { photo: _photo, photos: _photos, ...stored } = record;
+  return stored;
+}
+
+function buildStoredPhotos(ownerKey: string, photos: string[]): StoredPhoto[] {
+  return photos.map((photo, position) => ({
+    id: `${ownerKey}:${position}`,
+    ownerKey,
+    position,
+    blob: dataUrlToBlob(photo),
+  }));
+}
+
+async function deleteOwnerPhotos(photoStore: IDBObjectStore, ownerKey: string): Promise<void> {
+  const keys = await requestResult<IDBValidKey[]>(photoStore.index('ownerKey').getAllKeys(ownerKey));
+  keys.forEach(key => photoStore.delete(key));
+}
+
+async function getAllFromStore<T>(storeName: string): Promise<T[]> {
   const db = await openDatabase();
-  const transaction = db.transaction(OBJECT_STORE_NAME, 'readwrite');
-  const store = transaction.objectStore(OBJECT_STORE_NAME);
-  Object.entries(values).forEach(([key, value]) => store.put(value, key));
+  const transaction = db.transaction(storeName, 'readonly');
+  return requestResult<T[]>(transaction.objectStore(storeName).getAll());
+}
+
+async function readMetaValue<T>(key: string): Promise<T | undefined> {
+  const db = await openDatabase();
+  const transaction = db.transaction(META_OBJECT_STORE, 'readonly');
+  return requestResult<T | undefined>(transaction.objectStore(META_OBJECT_STORE).get(key));
+}
+
+function sortByStoredOrder<T extends { id: string }>(items: T[], order: string[] | undefined): T[] {
+  if (!order?.length) return items;
+  const positions = new Map(order.map((id, index) => [id, index]));
+  return [...items].sort((a, b) => (
+    (positions.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
+
+async function replaceNormalizedDatabase(values: DatabaseCache): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(
+    [STORE_OBJECT_STORE, SKU_OBJECT_STORE, SURVEY_OBJECT_STORE, RECORD_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE],
+    'readwrite'
+  );
+  const storeStore = transaction.objectStore(STORE_OBJECT_STORE);
+  const skuStore = transaction.objectStore(SKU_OBJECT_STORE);
+  const surveyStore = transaction.objectStore(SURVEY_OBJECT_STORE);
+  const recordStore = transaction.objectStore(RECORD_OBJECT_STORE);
+  const photoStore = transaction.objectStore(PHOTO_OBJECT_STORE);
+  [storeStore, skuStore, surveyStore, recordStore, photoStore].forEach(store => store.clear());
+
+  values.survey_stores.forEach(store => {
+    storeStore.put(toStoredStore(store));
+    if (store.photo) buildStoredPhotos(storeOwnerKey(store.id), [store.photo]).forEach(photo => photoStore.put(photo));
+  });
+  values.survey_skus.forEach(sku => skuStore.put(sku));
+  values.survey_list.forEach(survey => surveyStore.put(survey));
+  values.survey_records.forEach(record => {
+    recordStore.put(toStoredRecord(record));
+    const photos = record.photos?.length ? record.photos : record.photo ? [record.photo] : [];
+    buildStoredPhotos(recordOwnerKey(record.id), photos).forEach(photo => photoStore.put(photo));
+  });
+  const metaStore = transaction.objectStore(META_OBJECT_STORE);
+  metaStore.put(values.survey_stores.map(item => item.id), STORE_ORDER_KEY);
+  metaStore.put(values.survey_skus.map(item => item.id), SKU_ORDER_KEY);
+  metaStore.put(values.survey_list.map(item => item.id), SURVEY_ORDER_KEY);
+  metaStore.put(values.survey_records.map(item => item.id), RECORD_ORDER_KEY);
+  metaStore.put(true, NORMALIZED_SCHEMA_MARKER);
   await transactionCompleted(transaction);
 }
 
-async function persist<K extends StorageKey>(key: K, value: DatabaseCache[K]): Promise<boolean> {
-  try {
-    await writeIndexedValues({ [key]: value });
-    cache[key] = value as DatabaseCache[K];
-    return true;
-  } catch (error) {
-    console.error(`Error writing ${key} to IndexedDB`, error);
-    return false;
-  }
+async function loadNormalizedDatabase(): Promise<DatabaseCache> {
+  const [stores, skus, surveys, records, photos, storeOrder, skuOrder, surveyOrder, recordOrder] = await Promise.all([
+    getAllFromStore<StoredStore>(STORE_OBJECT_STORE),
+    getAllFromStore<SKU>(SKU_OBJECT_STORE),
+    getAllFromStore<Survey>(SURVEY_OBJECT_STORE),
+    getAllFromStore<StoredRecord>(RECORD_OBJECT_STORE),
+    getAllFromStore<StoredPhoto>(PHOTO_OBJECT_STORE),
+    readMetaValue<string[]>(STORE_ORDER_KEY),
+    readMetaValue<string[]>(SKU_ORDER_KEY),
+    readMetaValue<string[]>(SURVEY_ORDER_KEY),
+    readMetaValue<string[]>(RECORD_ORDER_KEY),
+  ]);
+  const photoGroups = new Map<string, StoredPhoto[]>();
+  photos.forEach(photo => {
+    const group = photoGroups.get(photo.ownerKey) || [];
+    group.push(photo);
+    photoGroups.set(photo.ownerKey, group);
+  });
+  const readPhotos = async (ownerKey: string): Promise<string[]> => Promise.all(
+    (photoGroups.get(ownerKey) || [])
+      .sort((a, b) => a.position - b.position)
+      .map(photo => blobToDataUrl(photo.blob))
+  );
+
+  return {
+    survey_stores: await Promise.all(sortByStoredOrder(stores, storeOrder).map(async store => {
+      const storedPhotos = await readPhotos(storeOwnerKey(store.id));
+      return { ...store, photo: storedPhotos[0] };
+    })),
+    survey_skus: sortByStoredOrder(skus, skuOrder),
+    survey_list: sortByStoredOrder(surveys, surveyOrder),
+    survey_records: await Promise.all(sortByStoredOrder(records, recordOrder).map(async record => {
+      const storedPhotos = await readPhotos(recordOwnerKey(record.id));
+      return { ...record, photo: null, photos: storedPhotos };
+    })),
+  };
+}
+
+async function hasNormalizedSchema(): Promise<boolean> {
+  const db = await openDatabase();
+  const transaction = db.transaction(META_OBJECT_STORE, 'readonly');
+  return (await requestResult(transaction.objectStore(META_OBJECT_STORE).get(NORMALIZED_SCHEMA_MARKER))) === true;
 }
 
 export const OfflineDB = {
@@ -231,20 +384,17 @@ export const OfflineDB = {
     if (initializationPromise) return initializationPromise;
 
     initializationPromise = (async () => {
-      const indexedValues = await Promise.all(STORAGE_KEYS.map(key => readIndexedValue(key)));
-      const nextCache: DatabaseCache = {
-        survey_stores: (indexedValues[0] as Store[] | undefined)
-          ?? INITIAL_STORES,
-        survey_skus: (indexedValues[1] as SKU[] | undefined)
-          ?? INITIAL_SKUS,
-        survey_list: (indexedValues[2] as Survey[] | undefined)
-          ?? [],
-        survey_records: (indexedValues[3] as SurveyRecord[] | undefined)
-          ?? [],
-      };
-
-      if (indexedValues.some(value => value === undefined)) {
-        await writeIndexedValues(nextCache);
+      let nextCache: DatabaseCache;
+      if (await hasNormalizedSchema()) {
+        nextCache = await loadNormalizedDatabase();
+      } else {
+        nextCache = {
+          survey_stores: INITIAL_STORES,
+          survey_skus: INITIAL_SKUS,
+          survey_list: [],
+          survey_records: [],
+        };
+        await replaceNormalizedDatabase(nextCache);
       }
 
       cache.survey_stores = nextCache.survey_stores;
@@ -292,8 +442,9 @@ export const OfflineDB = {
       || nextSurveys.length !== surveys.length
       || nextRecords.length !== records.length
     ) {
-      await writeIndexedValues({
+      await replaceNormalizedDatabase({
         survey_stores: nextStores,
+        survey_skus: this.getSKUs(),
         survey_list: nextSurveys,
         survey_records: nextRecords,
       });
@@ -316,12 +467,40 @@ export const OfflineDB = {
     } else {
       stores.unshift(store); // Add newest first
     }
-    return persist('survey_stores', stores);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([STORE_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      const completed = transactionCompleted(transaction);
+      transaction.objectStore(STORE_OBJECT_STORE).put(toStoredStore(store));
+      const photoStore = transaction.objectStore(PHOTO_OBJECT_STORE);
+      await deleteOwnerPhotos(photoStore, storeOwnerKey(store.id));
+      if (store.photo) buildStoredPhotos(storeOwnerKey(store.id), [store.photo]).forEach(photo => photoStore.put(photo));
+      transaction.objectStore(META_OBJECT_STORE).put(stores.map(item => item.id), STORE_ORDER_KEY);
+      await completed;
+      cache.survey_stores = stores;
+      return true;
+    } catch (error) {
+      console.error('Error writing store to IndexedDB', error);
+      return false;
+    }
   },
 
   async deleteStore(id: string): Promise<boolean> {
     const stores = this.getStores().filter(s => s.id !== id);
-    return persist('survey_stores', stores);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([STORE_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      const completed = transactionCompleted(transaction);
+      transaction.objectStore(STORE_OBJECT_STORE).delete(id);
+      await deleteOwnerPhotos(transaction.objectStore(PHOTO_OBJECT_STORE), storeOwnerKey(id));
+      transaction.objectStore(META_OBJECT_STORE).put(stores.map(item => item.id), STORE_ORDER_KEY);
+      await completed;
+      cache.survey_stores = stores;
+      return true;
+    } catch (error) {
+      console.error('Error deleting store from IndexedDB', error);
+      return false;
+    }
   },
 
   // SKUs
@@ -337,12 +516,34 @@ export const OfflineDB = {
     } else {
       skus.unshift(sku); // Add newest first
     }
-    return persist('survey_skus', skus);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([SKU_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      transaction.objectStore(SKU_OBJECT_STORE).put(sku);
+      transaction.objectStore(META_OBJECT_STORE).put(skus.map(item => item.id), SKU_ORDER_KEY);
+      await transactionCompleted(transaction);
+      cache.survey_skus = skus;
+      return true;
+    } catch (error) {
+      console.error('Error writing SKU to IndexedDB', error);
+      return false;
+    }
   },
 
   async deleteSKU(id: string): Promise<boolean> {
     const skus = this.getSKUs().filter(s => s.id !== id);
-    return persist('survey_skus', skus);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([SKU_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      transaction.objectStore(SKU_OBJECT_STORE).delete(id);
+      transaction.objectStore(META_OBJECT_STORE).put(skus.map(item => item.id), SKU_ORDER_KEY);
+      await transactionCompleted(transaction);
+      cache.survey_skus = skus;
+      return true;
+    } catch (error) {
+      console.error('Error deleting SKU from IndexedDB', error);
+      return false;
+    }
   },
 
   // Surveys
@@ -358,14 +559,37 @@ export const OfflineDB = {
     } else {
       surveys.unshift(survey);
     }
-    return persist('survey_list', surveys);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([SURVEY_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      transaction.objectStore(SURVEY_OBJECT_STORE).put(survey);
+      transaction.objectStore(META_OBJECT_STORE).put(surveys.map(item => item.id), SURVEY_ORDER_KEY);
+      await transactionCompleted(transaction);
+      cache.survey_list = surveys;
+      return true;
+    } catch (error) {
+      console.error('Error writing survey to IndexedDB', error);
+      return false;
+    }
   },
 
   async deleteSurvey(id: string): Promise<boolean> {
     const surveys = this.getSurveys().filter(s => s.id !== id);
     const records = this.getRecords().filter(r => r.surveyId !== id);
     try {
-      await writeIndexedValues({ survey_list: surveys, survey_records: records });
+      const recordIds = this.getRecords().filter(record => record.surveyId === id).map(record => record.id);
+      const db = await openDatabase();
+      const transaction = db.transaction([SURVEY_OBJECT_STORE, RECORD_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      const completed = transactionCompleted(transaction);
+      transaction.objectStore(SURVEY_OBJECT_STORE).delete(id);
+      const recordStore = transaction.objectStore(RECORD_OBJECT_STORE);
+      const photoStore = transaction.objectStore(PHOTO_OBJECT_STORE);
+      recordIds.forEach(recordId => recordStore.delete(recordId));
+      for (const recordId of recordIds) await deleteOwnerPhotos(photoStore, recordOwnerKey(recordId));
+      const metaStore = transaction.objectStore(META_OBJECT_STORE);
+      metaStore.put(surveys.map(item => item.id), SURVEY_ORDER_KEY);
+      metaStore.put(records.map(item => item.id), RECORD_ORDER_KEY);
+      await completed;
       cache.survey_list = surveys;
       cache.survey_records = records;
       return true;
@@ -405,12 +629,40 @@ export const OfflineDB = {
     } else {
       records.unshift(normalizedRecord); // Add newest first so it's recorded in shelf order
     }
-    return persist('survey_records', records);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([RECORD_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      const completed = transactionCompleted(transaction);
+      transaction.objectStore(RECORD_OBJECT_STORE).put(toStoredRecord(normalizedRecord));
+      const photoStore = transaction.objectStore(PHOTO_OBJECT_STORE);
+      await deleteOwnerPhotos(photoStore, recordOwnerKey(normalizedRecord.id));
+      buildStoredPhotos(recordOwnerKey(normalizedRecord.id), photos).forEach(photo => photoStore.put(photo));
+      transaction.objectStore(META_OBJECT_STORE).put(records.map(item => item.id), RECORD_ORDER_KEY);
+      await completed;
+      cache.survey_records = records;
+      return true;
+    } catch (error) {
+      console.error('Error writing record to IndexedDB', error);
+      return false;
+    }
   },
 
   async deleteRecord(id: string): Promise<boolean> {
     const records = this.getRecords().filter(r => r.id !== id);
-    return persist('survey_records', records);
+    try {
+      const db = await openDatabase();
+      const transaction = db.transaction([RECORD_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
+      const completed = transactionCompleted(transaction);
+      transaction.objectStore(RECORD_OBJECT_STORE).delete(id);
+      await deleteOwnerPhotos(transaction.objectStore(PHOTO_OBJECT_STORE), recordOwnerKey(id));
+      transaction.objectStore(META_OBJECT_STORE).put(records.map(item => item.id), RECORD_ORDER_KEY);
+      await completed;
+      cache.survey_records = records;
+      return true;
+    } catch (error) {
+      console.error('Error deleting record from IndexedDB', error);
+      return false;
+    }
   },
 
   // Fast Export - Generates standard CSV text for Vietnam Market Survey
@@ -844,7 +1096,7 @@ export const OfflineDB = {
     const nextRecords = Array.from(nextRecordsById.values());
     let ok = false;
     try {
-      await writeIndexedValues({
+      await replaceNormalizedDatabase({
         survey_stores: nextStores,
         survey_skus: nextSkus,
         survey_list: nextSurveys,
@@ -880,7 +1132,7 @@ export const OfflineDB = {
       survey_records: [],
     };
     try {
-      await writeIndexedValues(nextCache);
+      await replaceNormalizedDatabase(nextCache);
       cache.survey_stores = nextCache.survey_stores;
       cache.survey_skus = nextCache.survey_skus;
       cache.survey_list = nextCache.survey_list;
