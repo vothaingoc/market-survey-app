@@ -393,6 +393,23 @@ export const OfflineDB = {
     return dataUrlToBlob(source);
   },
 
+  async getStoredDataSize(): Promise<number> {
+    const [stores, skus, surveys, records, photos, meta] = await Promise.all([
+      getAllFromStore<StoredStore>(STORE_OBJECT_STORE),
+      getAllFromStore<SKU>(SKU_OBJECT_STORE),
+      getAllFromStore<Survey>(SURVEY_OBJECT_STORE),
+      getAllFromStore<StoredRecord>(RECORD_OBJECT_STORE),
+      getAllFromStore<StoredPhoto>(PHOTO_OBJECT_STORE),
+      getAllFromStore<unknown>(META_OBJECT_STORE),
+    ]);
+
+    const structuredDataBytes = new Blob([
+      JSON.stringify({ stores, skus, surveys, records, meta }),
+    ]).size;
+    const photoBytes = photos.reduce((total, photo) => total + photo.blob.size, 0);
+    return structuredDataBytes + photoBytes;
+  },
+
   async initialize(): Promise<void> {
     if (initialized) return;
     if (initializationPromise) return initializationPromise;

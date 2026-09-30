@@ -8,6 +8,7 @@ import { Survey, Store, SurveyRecord } from '../types';
 import { Play, Plus, MapPin, Database, Archive, Download, Trash2, Calendar, FileText, CheckSquare, Square } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 import { ExportModal } from './ExportModal';
+import { OfflineDB } from '../data/store';
 
 interface SurveyListProps {
   surveys: Survey[];
@@ -42,14 +43,19 @@ export const SurveyList: React.FC<SurveyListProps> = ({
   React.useEffect(() => {
     let active = true;
     const updateStorageEstimate = async () => {
-      if (!navigator.storage?.estimate) return;
       try {
-        const estimate = await navigator.storage.estimate();
-        if (active && typeof estimate.usage === 'number' && typeof estimate.quota === 'number') {
-          setStorageEstimate({ usage: estimate.usage, quota: estimate.quota });
+        const [usage, estimate] = await Promise.all([
+          OfflineDB.getStoredDataSize(),
+          navigator.storage?.estimate ? navigator.storage.estimate() : Promise.resolve(null),
+        ]);
+        if (active) {
+          setStorageEstimate({
+            usage,
+            quota: typeof estimate?.quota === 'number' ? estimate.quota : 0,
+          });
         }
       } catch (error) {
-        console.warn('Could not estimate browser storage', error);
+        console.warn('Could not calculate stored app data', error);
       }
     };
     updateStorageEstimate();
@@ -61,8 +67,12 @@ export const SurveyList: React.FC<SurveyListProps> = ({
   }, [surveys, records, stores]);
 
   const formatStorage = (bytes: number): string => {
+    if (bytes < 1024 * 1024) {
+      const kilobytes = bytes / 1024;
+      return kilobytes < 1 ? `${Math.max(0, Math.round(bytes))} B` : `${kilobytes.toFixed(0)} KB`;
+    }
     const megabytes = bytes / (1024 * 1024);
-    return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${megabytes.toFixed(0)} MB`;
+    return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${megabytes.toFixed(1)} MB`;
   };
 
   const storageWarning = storageEstimate
@@ -112,9 +122,10 @@ export const SurveyList: React.FC<SurveyListProps> = ({
 
         {storageEstimate && (
           <div className={`rounded-lg border px-3 py-2 text-xs flex items-center justify-between ${storageWarning ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'}`}>
-            <span className="font-semibold">Dung lượng app</span>
+            <span className="font-semibold">Dữ liệu đã lưu</span>
             <span className="font-mono font-bold">
-              {formatStorage(storageEstimate.usage)} / {formatStorage(storageEstimate.quota)}
+              {formatStorage(storageEstimate.usage)}
+              {storageEstimate.quota > 0 ? ` / ${formatStorage(storageEstimate.quota)}` : ''}
             </span>
           </div>
         )}
