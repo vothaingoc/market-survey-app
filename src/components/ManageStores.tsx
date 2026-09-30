@@ -7,7 +7,8 @@ import React, { useState, useMemo } from 'react';
 import { Store } from '../types';
 import { ArrowLeft, Plus, Trash2, Pencil, Search, MapPin, Navigation, Download, FileSpreadsheet, Archive, X } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
-import { createZip, dataUrlToBytes, textToBytes } from '../utils/zip';
+import { OfflineDB } from '../data/store';
+import { createZipFromBlobs, textToBytes } from '../utils/zip';
 
 interface ManageStoresProps {
   stores: Store[];
@@ -30,6 +31,7 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [showExportOptions, setShowExportOptions] = useState(false);
+  const [isBuildingZip, setIsBuildingZip] = useState(false);
 
   const filteredStores = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -61,11 +63,6 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
       : Array.from(new Set([...current, ...visibleIds])));
   };
 
-  const getPhotoMimeType = (photo: string): string => {
-    const match = photo.match(/^data:([^;,]+)/);
-    return match?.[1] || 'application/octet-stream';
-  };
-
   const getPhotoExtension = (mimeType: string): string => {
     if (mimeType === 'image/jpeg') return 'jpg';
     if (mimeType === 'image/svg+xml') return 'svg';
@@ -84,10 +81,11 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
     return storesToExport.map((store, index) => {
       let filename = '';
       let mimeType = '';
-      let photoBytes: Uint8Array | null = null;
+      let photoBlob: Blob | null = null;
 
       if (store.photo) {
-        mimeType = getPhotoMimeType(store.photo);
+        photoBlob = OfflineDB.getPhotoBlob(store.photo);
+        mimeType = photoBlob.type || 'application/octet-stream';
         const extension = getPhotoExtension(mimeType);
         const baseName = `${index + 1}. ${sanitizeFilename(store.name)}_storefront`;
         let candidate = `${baseName}.${extension}`;
@@ -98,10 +96,9 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
         }
         filename = candidate;
         usedNames.add(candidate.toLocaleLowerCase());
-        photoBytes = dataUrlToBytes(store.photo);
       }
 
-      return { store, sequence: index + 1, filename, mimeType, photoBytes };
+      return { store, sequence: index + 1, filename, mimeType, photoBlob };
     });
   };
 
@@ -109,14 +106,14 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
 
   const createStoresCsv = (exportData: ReturnType<typeof buildExportData>): string => {
     const headers = ['STT', 'Tên điểm bán', 'Địa chỉ', 'GPS', 'Tên file ảnh', 'Loại ảnh', 'Dung lượng ảnh (byte)'];
-    const rows = exportData.map(({ store, sequence, filename, mimeType, photoBytes }) => [
+    const rows = exportData.map(({ store, sequence, filename, mimeType, photoBlob }) => [
       sequence,
       store.name,
       store.address,
       store.gps || '',
       filename,
       mimeType,
-      photoBytes?.length ?? '',
+      photoBlob?.size ?? '',
     ]);
     return `\uFEFF${[headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n')}`;
   };
@@ -150,17 +147,26 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
   };
 
   const exportCsvWithPhotos = async () => {
-    const exportData = buildExportData();
-    const csv = createStoresCsv(exportData);
-    const zip = createZip([
-      { path: 'Danh_sach_diem_ban.csv', data: textToBytes(csv) },
-      ...exportData
-        .filter(item => item.photoBytes && item.filename)
-        .map(item => ({ path: `photos/${item.filename}`, data: item.photoBytes! })),
-    ]);
-    const file = new File([zip], 'Danh_sach_diem_ban_kem_anh.zip', { type: 'application/zip' });
-    await shareOrDownload(file);
-    setShowExportOptions(false);
+    if (isBuildingZip) return;
+    setIsBuildingZip(true);
+    try {
+      const exportData = buildExportData();
+      const csv = createStoresCsv(exportData);
+      const zip = await createZipFromBlobs([
+        { path: 'Danh_sach_diem_ban.csv', data: textToBytes(csv) },
+        ...exportData
+          .filter(item => item.photoBlob && item.filename)
+          .map(item => ({ path: `photos/${item.filename}`, data: item.photoBlob! })),
+      ]);
+      const file = new File([zip], 'Danh_sach_diem_ban_kem_anh.zip', { type: 'application/zip' });
+      await shareOrDownload(file);
+      setShowExportOptions(false);
+    } catch (error) {
+      console.error('Could not export store photos', error);
+      window.alert('Không thể tạo file ZIP. Vui lòng đóng các ứng dụng khác rồi thử lại.');
+    } finally {
+      setIsBuildingZip(false);
+    }
   };
 
   return (
@@ -337,9 +343,9 @@ export const ManageStores: React.FC<ManageStoresProps> = ({
                 <span className="rounded-lg bg-emerald-600 p-2 text-white"><FileSpreadsheet className="h-5 w-5" /></span>
                 <span><strong className="block text-sm text-slate-900">Chỉ CSV</strong><span className="text-xs text-slate-500">Danh sách điểm bán, GPS và thông tin ảnh</span></span>
               </button>
-              <button type="button" onClick={exportCsvWithPhotos} className="w-full rounded-xl border border-blue-200 bg-blue-50 p-4 text-left flex items-center gap-3">
+              <button type="button" onClick={exportCsvWithPhotos} disabled={isBuildingZip} className="w-full rounded-xl border border-blue-200 bg-blue-50 p-4 text-left flex items-center gap-3 disabled:opacity-60">
                 <span className="rounded-lg bg-blue-600 p-2 text-white"><Archive className="h-5 w-5" /></span>
-                <span><strong className="block text-sm text-slate-900">CSV kèm ảnh</strong><span className="text-xs text-slate-500">File ZIP gồm CSV và thư mục photos</span></span>
+                <span><strong className="block text-sm text-slate-900">{isBuildingZip ? 'Đang tạo ZIP...' : 'CSV kèm ảnh'}</strong><span className="text-xs text-slate-500">File ZIP gồm CSV và thư mục photos</span></span>
               </button>
             </div>
           </div>

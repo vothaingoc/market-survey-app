@@ -8,6 +8,11 @@ type ZipInputFile = {
   data: Uint8Array;
 };
 
+type ZipBlobInputFile = {
+  path: string;
+  data: Blob | Uint8Array;
+};
+
 type ZipOutputFile = {
   path: string;
   data: Uint8Array;
@@ -30,6 +35,19 @@ function crc32(data: Uint8Array): number {
   data.forEach(byte => {
     crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
   });
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+async function crc32Blob(blob: Blob): Promise<number> {
+  let crc = 0xffffffff;
+  const reader = blob.stream().getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    value.forEach(byte => {
+      crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    });
+  }
   return (crc ^ 0xffffffff) >>> 0;
 }
 
@@ -145,6 +163,72 @@ export function createZip(files: ZipInputFile[]): Blob {
     ...centralParts,
     new Uint8Array(endParts),
   ], { type: 'application/zip' });
+}
+
+// Read large image blobs one at a time. This avoids creating Base64 copies of
+// every photo and prevents a large Promise.all memory spike on mobile Safari.
+export async function createZipFromBlobs(files: ZipBlobInputFile[]): Promise<Blob> {
+  const localParts: BlobPart[] = [];
+  const centralParts: BlobPart[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const filename = textEncoder.encode(file.path.replace(/\\/g, '/'));
+    const size = file.data instanceof Blob ? file.data.size : file.data.length;
+    const checksum = file.data instanceof Blob ? await crc32Blob(file.data) : crc32(file.data);
+    const localOffset = offset;
+    const localHeader: number[] = [];
+
+    writeUint32(localHeader, 0x04034b50);
+    writeUint16(localHeader, 20);
+    writeUint16(localHeader, ZIP_UTF8_FLAG);
+    writeUint16(localHeader, 0);
+    writeUint16(localHeader, 0);
+    writeUint16(localHeader, 0);
+    writeUint32(localHeader, checksum);
+    writeUint32(localHeader, size);
+    writeUint32(localHeader, size);
+    writeUint16(localHeader, filename.length);
+    writeUint16(localHeader, 0);
+    localParts.push(new Uint8Array(localHeader), filename, file.data);
+    offset += 30 + filename.length + size;
+
+    const centralHeader: number[] = [];
+    writeUint32(centralHeader, 0x02014b50);
+    writeUint16(centralHeader, 20);
+    writeUint16(centralHeader, 20);
+    writeUint16(centralHeader, ZIP_UTF8_FLAG);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint32(centralHeader, checksum);
+    writeUint32(centralHeader, size);
+    writeUint32(centralHeader, size);
+    writeUint16(centralHeader, filename.length);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint16(centralHeader, 0);
+    writeUint32(centralHeader, 0);
+    writeUint32(centralHeader, localOffset);
+    centralParts.push(new Uint8Array(centralHeader), filename);
+  }
+
+  const centralOffset = offset;
+  const centralSize = files.reduce((size, file) => (
+    size + 46 + textEncoder.encode(file.path.replace(/\\/g, '/')).length
+  ), 0);
+  const endParts: number[] = [];
+  writeUint32(endParts, 0x06054b50);
+  writeUint16(endParts, 0);
+  writeUint16(endParts, 0);
+  writeUint16(endParts, files.length);
+  writeUint16(endParts, files.length);
+  writeUint32(endParts, centralSize);
+  writeUint32(endParts, centralOffset);
+  writeUint16(endParts, 0);
+
+  return new Blob([...localParts, ...centralParts, new Uint8Array(endParts)], { type: 'application/zip' });
 }
 
 export async function readZip(file: File): Promise<ZipOutputFile[]> {

@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { OfflineDB } from '../data/store';
 import { ArrowLeft, Copy, Check, Trash2, ShieldCheck, FileSpreadsheet, Bot, Share2, Upload, Archive } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
-import { bytesToDataUrl, bytesToText, createZip, dataUrlToBytes, readZip, textToBytes } from '../utils/zip';
+import { bytesToDataUrl, bytesToText, createZipFromBlobs, readZip, textToBytes } from '../utils/zip';
 
 interface ExportRawDataProps {
   onBack: () => void;
@@ -20,6 +20,7 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [previewTab, setPreviewTab] = useState<'json' | 'csv'>('json');
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [isBuildingZip, setIsBuildingZip] = useState(false);
 
   // Read sizes
   const stats = useMemo(() => {
@@ -125,23 +126,32 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
     handleShareOrDownload(file);
   };
 
-  const handleExportBackup = () => {
+  const handleExportBackup = async () => {
     const validationErrors = getExportValidationErrors(jsonText);
     if (validationErrors.length > 0) {
       window.alert(`Survey.json chua hop le: ${validationErrors.join('; ')}`);
       return;
     }
 
-    const backupPhotos = OfflineDB.exportBackupPhotos(selectedSurveyIds);
-    const zipBlob = createZip([
-      { path: 'Survey.json', data: textToBytes(jsonText) },
-      ...backupPhotos.map(photo => ({
-        path: `photos/${photo.filename}`,
-        data: dataUrlToBytes(photo.dataUrl),
-      })),
-    ]);
-    const file = new File([zipBlob], 'Survey_backup.zip', { type: 'application/zip' });
-    handleShareOrDownload(file);
+    if (isBuildingZip) return;
+    setIsBuildingZip(true);
+    try {
+      const backupPhotos = OfflineDB.exportBackupPhotos(selectedSurveyIds);
+      const zipBlob = await createZipFromBlobs([
+        { path: 'Survey.json', data: textToBytes(jsonText) },
+        ...backupPhotos.map(photo => ({
+          path: `photos/${photo.filename}`,
+          data: photo.blob,
+        })),
+      ]);
+      const file = new File([zipBlob], 'Survey_backup.zip', { type: 'application/zip' });
+      await handleShareOrDownload(file);
+    } catch (error) {
+      console.error('Could not create backup ZIP', error);
+      setImportMessage('Không thể tạo file sao lưu. Vui lòng đóng các ứng dụng khác rồi thử lại.');
+    } finally {
+      setIsBuildingZip(false);
+    }
   };
 
   const handleImportBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -298,13 +308,14 @@ export const ExportRawData: React.FC<ExportRawDataProps> = ({ onBack, onDataRese
           <button
             id="btn-export-backup-page"
             onClick={handleExportBackup}
+            disabled={isBuildingZip}
             className="w-full p-3.5 bg-blue-50 hover:bg-blue-100/80 active:bg-blue-200 border border-blue-200 rounded-xl flex items-center space-x-3 text-left transition-all"
           >
             <div className="p-2.5 bg-blue-600 text-white rounded-xl shrink-0">
               <Archive className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-slate-900 text-sm">Sao luu day du</div>
+              <div className="font-bold text-slate-900 text-sm">{isBuildingZip ? 'Đang tạo ZIP...' : 'Sao luu day du'}</div>
               <div className="text-xs text-slate-500 mt-0.5">ZIP gom Survey.json va thu muc photos</div>
             </div>
             <Share2 className="w-5 h-5 text-blue-600 shrink-0" />

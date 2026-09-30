@@ -114,11 +114,15 @@ function normalizeDistribution(value: unknown): { value: NormalizedDistribution;
 }
 
 function getPhotoMimeType(dataUrl: string): string {
+  const storedBlob = photoBlobBySource.get(dataUrl);
+  if (storedBlob) return storedBlob.type || 'application/octet-stream';
   const match = dataUrl.match(/^data:([^;]+);/);
   return match ? match[1] : 'application/octet-stream';
 }
 
 function getDataUrlSize(dataUrl: string): number {
+  const storedBlob = photoBlobBySource.get(dataUrl);
+  if (storedBlob) return storedBlob.size;
   const payload = dataUrl.split(',')[1] || '';
   return Math.ceil((payload.length * 3) / 4);
 }
@@ -185,6 +189,7 @@ const cache: DatabaseCache = {
 let databasePromise: Promise<IDBDatabase> | null = null;
 let initializationPromise: Promise<void> | null = null;
 let initialized = false;
+const photoBlobBySource = new Map<string, Blob>();
 
 function openDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;
@@ -229,6 +234,8 @@ function transactionCompleted(transaction: IDBTransaction): Promise<void> {
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
+  const storedBlob = photoBlobBySource.get(dataUrl);
+  if (storedBlob) return storedBlob;
   const [metadata, payload = ''] = dataUrl.split(',', 2);
   const mimeType = metadata.match(/^data:([^;,]+)/)?.[1] || 'application/octet-stream';
   if (!metadata.includes(';base64')) {
@@ -240,13 +247,16 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mimeType });
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error('Could not read stored photo'));
-    reader.onload = () => resolve(String(reader.result));
-    reader.readAsDataURL(blob);
-  });
+function blobToObjectUrl(blob: Blob): string {
+  const source = URL.createObjectURL(blob);
+  photoBlobBySource.set(source, blob);
+  return source;
+}
+
+function releasePhotoSource(source: string | null | undefined): void {
+  if (!source || !photoBlobBySource.has(source)) return;
+  URL.revokeObjectURL(source);
+  photoBlobBySource.delete(source);
 }
 
 function storeOwnerKey(storeId: string): string {
@@ -352,23 +362,23 @@ async function loadNormalizedDatabase(): Promise<DatabaseCache> {
     group.push(photo);
     photoGroups.set(photo.ownerKey, group);
   });
-  const readPhotos = async (ownerKey: string): Promise<string[]> => Promise.all(
+  const readPhotos = (ownerKey: string): string[] => (
     (photoGroups.get(ownerKey) || [])
       .sort((a, b) => a.position - b.position)
-      .map(photo => blobToDataUrl(photo.blob))
+      .map(photo => blobToObjectUrl(photo.blob))
   );
 
   return {
-    survey_stores: await Promise.all(sortByStoredOrder(stores, storeOrder).map(async store => {
-      const storedPhotos = await readPhotos(storeOwnerKey(store.id));
+    survey_stores: sortByStoredOrder(stores, storeOrder).map(store => {
+      const storedPhotos = readPhotos(storeOwnerKey(store.id));
       return { ...store, photo: storedPhotos[0] };
-    })),
+    }),
     survey_skus: sortByStoredOrder(skus, skuOrder),
     survey_list: sortByStoredOrder(surveys, surveyOrder),
-    survey_records: await Promise.all(sortByStoredOrder(records, recordOrder).map(async record => {
-      const storedPhotos = await readPhotos(recordOwnerKey(record.id));
+    survey_records: sortByStoredOrder(records, recordOrder).map(record => {
+      const storedPhotos = readPhotos(recordOwnerKey(record.id));
       return { ...record, photo: null, photos: storedPhotos };
-    })),
+    }),
   };
 }
 
@@ -379,6 +389,10 @@ async function hasNormalizedSchema(): Promise<boolean> {
 }
 
 export const OfflineDB = {
+  getPhotoBlob(source: string): Blob {
+    return dataUrlToBlob(source);
+  },
+
   async initialize(): Promise<void> {
     if (initialized) return;
     if (initializationPromise) return initializationPromise;
@@ -448,6 +462,10 @@ export const OfflineDB = {
         survey_list: nextSurveys,
         survey_records: nextRecords,
       });
+      stores.filter(store => OSAKA_SEED_STORE_IDS.has(store.id)).forEach(store => releasePhotoSource(store.photo));
+      records.filter(record => seedSurveyIds.has(record.surveyId)).flatMap(record => (
+        record.photos?.length ? record.photos : record.photo ? [record.photo] : []
+      )).forEach(releasePhotoSource);
       cache.survey_stores = nextStores;
       cache.survey_list = nextSurveys;
       cache.survey_records = nextRecords;
@@ -460,6 +478,7 @@ export const OfflineDB = {
   },
   
   async saveStore(store: Store): Promise<boolean> {
+    const previousStore = this.getStores().find(item => item.id === store.id);
     const stores = [...this.getStores()];
     const index = stores.findIndex(s => s.id === store.id);
     if (index >= 0) {
@@ -468,15 +487,23 @@ export const OfflineDB = {
       stores.unshift(store); // Add newest first
     }
     try {
+      const storedPhotos = store.photo ? buildStoredPhotos(storeOwnerKey(store.id), [store.photo]) : [];
       const db = await openDatabase();
       const transaction = db.transaction([STORE_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
       const completed = transactionCompleted(transaction);
       transaction.objectStore(STORE_OBJECT_STORE).put(toStoredStore(store));
       const photoStore = transaction.objectStore(PHOTO_OBJECT_STORE);
       await deleteOwnerPhotos(photoStore, storeOwnerKey(store.id));
-      if (store.photo) buildStoredPhotos(storeOwnerKey(store.id), [store.photo]).forEach(photo => photoStore.put(photo));
+      storedPhotos.forEach(photo => photoStore.put(photo));
       transaction.objectStore(META_OBJECT_STORE).put(stores.map(item => item.id), STORE_ORDER_KEY);
       await completed;
+      const cachedStore: Store = {
+        ...store,
+        photo: storedPhotos[0] ? blobToObjectUrl(storedPhotos[0].blob) : undefined,
+      };
+      const cachedIndex = stores.findIndex(item => item.id === store.id);
+      stores[cachedIndex] = cachedStore;
+      releasePhotoSource(previousStore?.photo);
       cache.survey_stores = stores;
       return true;
     } catch (error) {
@@ -486,6 +513,7 @@ export const OfflineDB = {
   },
 
   async deleteStore(id: string): Promise<boolean> {
+    const deletedStore = this.getStores().find(store => store.id === id);
     const stores = this.getStores().filter(s => s.id !== id);
     try {
       const db = await openDatabase();
@@ -495,6 +523,7 @@ export const OfflineDB = {
       await deleteOwnerPhotos(transaction.objectStore(PHOTO_OBJECT_STORE), storeOwnerKey(id));
       transaction.objectStore(META_OBJECT_STORE).put(stores.map(item => item.id), STORE_ORDER_KEY);
       await completed;
+      releasePhotoSource(deletedStore?.photo);
       cache.survey_stores = stores;
       return true;
     } catch (error) {
@@ -575,9 +604,10 @@ export const OfflineDB = {
 
   async deleteSurvey(id: string): Promise<boolean> {
     const surveys = this.getSurveys().filter(s => s.id !== id);
+    const deletedRecords = this.getRecords().filter(record => record.surveyId === id);
     const records = this.getRecords().filter(r => r.surveyId !== id);
     try {
-      const recordIds = this.getRecords().filter(record => record.surveyId === id).map(record => record.id);
+      const recordIds = deletedRecords.map(record => record.id);
       const db = await openDatabase();
       const transaction = db.transaction([SURVEY_OBJECT_STORE, RECORD_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
       const completed = transactionCompleted(transaction);
@@ -590,6 +620,9 @@ export const OfflineDB = {
       metaStore.put(surveys.map(item => item.id), SURVEY_ORDER_KEY);
       metaStore.put(records.map(item => item.id), RECORD_ORDER_KEY);
       await completed;
+      deletedRecords.flatMap(record => (
+        record.photos?.length ? record.photos : record.photo ? [record.photo] : []
+      )).forEach(releasePhotoSource);
       cache.survey_list = surveys;
       cache.survey_records = records;
       return true;
@@ -609,6 +642,7 @@ export const OfflineDB = {
   },
 
   async saveRecord(record: SurveyRecord): Promise<boolean> {
+    const previousRecord = this.getRecords().find(item => item.id === record.id);
     const photos = record.photos && record.photos.length > 0
       ? record.photos
       : (record.photo ? [record.photo] : []);
@@ -630,15 +664,25 @@ export const OfflineDB = {
       records.unshift(normalizedRecord); // Add newest first so it's recorded in shelf order
     }
     try {
+      const storedPhotos = buildStoredPhotos(recordOwnerKey(normalizedRecord.id), photos);
       const db = await openDatabase();
       const transaction = db.transaction([RECORD_OBJECT_STORE, PHOTO_OBJECT_STORE, META_OBJECT_STORE], 'readwrite');
       const completed = transactionCompleted(transaction);
       transaction.objectStore(RECORD_OBJECT_STORE).put(toStoredRecord(normalizedRecord));
       const photoStore = transaction.objectStore(PHOTO_OBJECT_STORE);
       await deleteOwnerPhotos(photoStore, recordOwnerKey(normalizedRecord.id));
-      buildStoredPhotos(recordOwnerKey(normalizedRecord.id), photos).forEach(photo => photoStore.put(photo));
+      storedPhotos.forEach(photo => photoStore.put(photo));
       transaction.objectStore(META_OBJECT_STORE).put(records.map(item => item.id), RECORD_ORDER_KEY);
       await completed;
+      const cachedRecord: SurveyRecord = {
+        ...normalizedRecord,
+        photo: null,
+        photos: storedPhotos.map(photo => blobToObjectUrl(photo.blob)),
+      };
+      const cachedIndex = records.findIndex(item => item.id === normalizedRecord.id);
+      records[cachedIndex] = cachedRecord;
+      (previousRecord?.photos?.length ? previousRecord.photos : previousRecord?.photo ? [previousRecord.photo] : [])
+        .forEach(releasePhotoSource);
       cache.survey_records = records;
       return true;
     } catch (error) {
@@ -648,6 +692,7 @@ export const OfflineDB = {
   },
 
   async deleteRecord(id: string): Promise<boolean> {
+    const deletedRecord = this.getRecords().find(record => record.id === id);
     const records = this.getRecords().filter(r => r.id !== id);
     try {
       const db = await openDatabase();
@@ -657,6 +702,8 @@ export const OfflineDB = {
       await deleteOwnerPhotos(transaction.objectStore(PHOTO_OBJECT_STORE), recordOwnerKey(id));
       transaction.objectStore(META_OBJECT_STORE).put(records.map(item => item.id), RECORD_ORDER_KEY);
       await completed;
+      (deletedRecord?.photos?.length ? deletedRecord.photos : deletedRecord?.photo ? [deletedRecord.photo] : [])
+        .forEach(releasePhotoSource);
       cache.survey_records = records;
       return true;
     } catch (error) {
@@ -735,7 +782,7 @@ export const OfflineDB = {
 
   exportCSVWithPhotos(surveyIds?: string[]): {
     csv: string;
-    photos: { filename: string; mimeType: string; dataUrl: string }[];
+    photos: { filename: string; mimeType: string; blob: Blob }[];
   } {
     let records = this.getRecords();
     if (surveyIds && surveyIds.length > 0) {
@@ -745,7 +792,7 @@ export const OfflineDB = {
     const storeMap = new Map<string, Store>(this.getStores().map(store => [store.id, store]));
     const skuMap = new Map<string, SKU>(this.getSKUs().map(sku => [sku.id, sku]));
     const surveyMap = new Map<string, Survey>(this.getSurveys().map(survey => [survey.id, survey]));
-    const photos: { filename: string; mimeType: string; dataUrl: string }[] = [];
+    const photos: { filename: string; mimeType: string; blob: Blob }[] = [];
 
     const sanitizeFilename = (value: string): string => value
       .normalize('NFKC')
@@ -792,7 +839,7 @@ export const OfflineDB = {
             ? 'svg'
             : mimeType.split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'bin';
         const filename = `${sequence}. ${sanitizeFilename(sku?.name || 'SKU')}_${photoIndex + 1}.${extension}`;
-        photos.push({ filename, mimeType, dataUrl: photo });
+        photos.push({ filename, mimeType, blob: dataUrlToBlob(photo) });
         return filename;
       });
 
@@ -942,7 +989,7 @@ export const OfflineDB = {
     return JSON.stringify(exportObject, null, 2);
   },
 
-  exportBackupPhotos(surveyIds?: string[]): { filename: string; mimeType: string; dataUrl: string }[] {
+  exportBackupPhotos(surveyIds?: string[]): { filename: string; mimeType: string; blob: Blob }[] {
     let surveys = this.getSurveys();
     if (surveyIds && surveyIds.length > 0) {
       surveys = surveys.filter(s => surveyIds.includes(s.id));
@@ -953,7 +1000,7 @@ export const OfflineDB = {
       .filter(store => selectedStoreIds.has(store.id) && !!store.photo)
       .map(store => {
         const exportedPhoto = photoToExport(store.photo!, `${store.id}_storefront`, 0, 'storefront');
-        return { filename: exportedPhoto.filename, mimeType: exportedPhoto.mimeType, dataUrl: store.photo! };
+        return { filename: exportedPhoto.filename, mimeType: exportedPhoto.mimeType, blob: dataUrlToBlob(store.photo!) };
       });
     const productPhotos = this.getRecords()
       .filter(record => surveyIdSet.has(record.surveyId))
@@ -964,7 +1011,7 @@ export const OfflineDB = {
           return {
             filename: exportedPhoto.filename,
             mimeType: exportedPhoto.mimeType,
-            dataUrl: photo,
+            blob: dataUrlToBlob(photo),
           };
         });
       });
@@ -1102,10 +1149,15 @@ export const OfflineDB = {
         survey_list: nextSurveys,
         survey_records: nextRecords,
       });
-      cache.survey_stores = nextStores;
-      cache.survey_skus = nextSkus;
-      cache.survey_list = nextSurveys;
-      cache.survey_records = nextRecords;
+      cache.survey_stores.forEach(store => releasePhotoSource(store.photo));
+      cache.survey_records.flatMap(record => (
+        record.photos?.length ? record.photos : record.photo ? [record.photo] : []
+      )).forEach(releasePhotoSource);
+      const reloaded = await loadNormalizedDatabase();
+      cache.survey_stores = reloaded.survey_stores;
+      cache.survey_skus = reloaded.survey_skus;
+      cache.survey_list = reloaded.survey_list;
+      cache.survey_records = reloaded.survey_records;
       ok = true;
     } catch (error) {
       console.error('Could not import data into IndexedDB', error);
@@ -1133,6 +1185,10 @@ export const OfflineDB = {
     };
     try {
       await replaceNormalizedDatabase(nextCache);
+      cache.survey_stores.forEach(store => releasePhotoSource(store.photo));
+      cache.survey_records.flatMap(record => (
+        record.photos?.length ? record.photos : record.photo ? [record.photo] : []
+      )).forEach(releasePhotoSource);
       cache.survey_stores = nextCache.survey_stores;
       cache.survey_skus = nextCache.survey_skus;
       cache.survey_list = nextCache.survey_list;

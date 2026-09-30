@@ -37,6 +37,38 @@ export const SurveyList: React.FC<SurveyListProps> = ({
   const storeMap = React.useMemo(() => new Map(stores.map(s => [s.id, s])), [stores]);
   const [deleteSurveyId, setDeleteSurveyId] = React.useState<string | null>(null);
   const [showExportModal, setShowExportModal] = React.useState(false);
+  const [storageEstimate, setStorageEstimate] = React.useState<{ usage: number; quota: number } | null>(null);
+
+  React.useEffect(() => {
+    let active = true;
+    const updateStorageEstimate = async () => {
+      if (!navigator.storage?.estimate) return;
+      try {
+        const estimate = await navigator.storage.estimate();
+        if (active && typeof estimate.usage === 'number' && typeof estimate.quota === 'number') {
+          setStorageEstimate({ usage: estimate.usage, quota: estimate.quota });
+        }
+      } catch (error) {
+        console.warn('Could not estimate browser storage', error);
+      }
+    };
+    updateStorageEstimate();
+    window.addEventListener('focus', updateStorageEstimate);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', updateStorageEstimate);
+    };
+  }, [surveys, records, stores]);
+
+  const formatStorage = (bytes: number): string => {
+    const megabytes = bytes / (1024 * 1024);
+    return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${megabytes.toFixed(0)} MB`;
+  };
+
+  const storageWarning = storageEstimate
+    ? storageEstimate.quota - storageEstimate.usage < 500 * 1024 * 1024
+      || storageEstimate.usage / storageEstimate.quota >= 0.8
+    : false;
 
   const getSurveyStats = React.useCallback((surveyId: string) => {
     const surveyRecords = records.filter(r => r.surveyId === surveyId);
@@ -77,6 +109,21 @@ export const SurveyList: React.FC<SurveyListProps> = ({
             </button>
           )}
         </div>
+
+        {storageEstimate && (
+          <div className={`rounded-lg border px-3 py-2 text-xs flex items-center justify-between ${storageWarning ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'}`}>
+            <span className="font-semibold">Dung lượng app</span>
+            <span className="font-mono font-bold">
+              {formatStorage(storageEstimate.usage)} / {formatStorage(storageEstimate.quota)}
+            </span>
+          </div>
+        )}
+
+        {storageWarning && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+            Bộ nhớ trình duyệt gần đầy. Hãy xuất sao lưu trước khi tiếp tục chụp ảnh.
+          </div>
+        )}
 
         {surveys.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-lg p-8 text-center shadow-sm">
