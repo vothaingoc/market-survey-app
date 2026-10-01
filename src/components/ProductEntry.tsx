@@ -11,6 +11,7 @@ import { ArrowLeft, Plus, Minus, Camera, Save, RefreshCw, X, AlertCircle, ZoomIn
 
 const ACV_FACTORY_CODES = ['SG 1', 'SG 2', 'BD', 'HY', 'VL', 'DN', 'NV', 'BN', 'HV'];
 const MAX_PRICE_SUGGESTIONS = 10;
+const QUICK_FACING_VALUES = [1, 2, 3, 4, 5, 6];
 
 interface ProductEntryProps {
   sku: SKU;
@@ -34,7 +35,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   const [expiryRaw, setExpiryRaw] = useState<string>('');
   const [expiryError, setExpiryError] = useState('');
   const [factoryCode, setFactoryCode] = useState<string>('');
-  const [facing, setFacing] = useState<number>(1);
+  const [facing, setFacing] = useState<number>(2);
   const [photos, setPhotos] = useState<string[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [isProcessingPhotos, setIsProcessingPhotos] = useState(false);
@@ -273,7 +274,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
         setPriceCarton('');
         setExpiryRaw('');
         setFactoryCode('');
-        setFacing(1);
+        setFacing(2);
         setPhotos([]);
       }
     } catch (error) {
@@ -342,12 +343,13 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
         </div>
 
         {/* FIELD B: SHELF FACING (SỐ FACE) */}
-        <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm flex items-center justify-between">
-          <label htmlFor="input-facing" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Số Face
-          </label>
-          
-          <div className="flex items-center space-x-2">
+        <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm space-y-2.5">
+          <div className="flex items-center justify-between">
+            <label htmlFor="input-facing" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Số Face
+            </label>
+
+            <div className="flex items-center space-x-2">
             <button
               id="btn-decrement-facing"
               type="button"
@@ -380,6 +382,27 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
             >
               <Plus className="w-5 h-5 stroke-[3]" />
             </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-400 mr-0.5">Chọn nhanh:</span>
+            {QUICK_FACING_VALUES.map(value => (
+              <button
+                key={value}
+                id={`btn-quick-facing-${value}`}
+                type="button"
+                onClick={() => setFacing(value)}
+                className={`flex-1 min-w-0 py-1.5 rounded-lg border text-xs font-extrabold font-mono transition-colors ${
+                  facing === value
+                    ? 'bg-slate-900 border-slate-900 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 active:bg-slate-200'
+                }`}
+                aria-label={`Chọn ${value} Face`}
+              >
+                {value}
+              </button>
+            ))}
           </div>
         </div>
 
