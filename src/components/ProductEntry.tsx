@@ -192,7 +192,6 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
       price1: getRankedPrices('price1', DEFAULT_P1),
       price5: getRankedPrices('price5', DEFAULT_P5),
       priceCarton: getRankedPrices('priceCarton', DEFAULT_CARTON),
-      hasHistory: allRecordsForSku.length > 0,
     };
   }, [sku.id]);
 
@@ -342,32 +341,42 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
           </div>
         </div>
 
-        {/* FIELD B: SHELF FACING (SỐ FACE) - Huge counter instead of text box */}
+        {/* FIELD B: SHELF FACING (SỐ FACE) */}
         <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-              Số Lượng Trưng Bày (Facing)
-            </span>
-            <span className="text-xs text-slate-400">Số lượng hàng nhìn thấy trên kệ</span>
-          </div>
+          <label htmlFor="input-facing" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Số Face
+          </label>
           
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
             <button
               id="btn-decrement-facing"
               type="button"
               onClick={() => setFacing(Math.max(1, facing - 1))}
-              className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 border border-slate-200 flex items-center justify-center text-slate-700 transition-all"
+              className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 border border-slate-200 flex items-center justify-center text-slate-700 transition-all"
+              aria-label="Giảm một Face"
             >
               <Minus className="w-5 h-5 stroke-[3]" />
             </button>
-            <span id="txt-facing-value" className="text-2xl font-black font-mono text-slate-800 w-8 text-center">
-              {facing}
-            </span>
+            <input
+              id="input-facing"
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={facing}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                const digits = event.target.value.replace(/\D/g, '').slice(0, 3);
+                setFacing(digits ? Math.max(1, Number(digits)) : 1);
+              }}
+              className="w-20 h-10 px-2 bg-slate-50 border border-slate-200 focus:border-slate-400 focus:bg-white text-xl text-center font-mono font-black text-slate-800 rounded-xl outline-none"
+              aria-label="Nhập số Face"
+            />
             <button
               id="btn-increment-facing"
               type="button"
-              onClick={() => setFacing(facing + 1)}
-              className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 border border-slate-200 flex items-center justify-center text-slate-700 transition-all"
+              onClick={() => setFacing(Math.min(999, facing + 1))}
+              className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 border border-slate-200 flex items-center justify-center text-slate-700 transition-all"
+              aria-label="Tăng một Face"
             >
               <Plus className="w-5 h-5 stroke-[3]" />
             </button>
@@ -376,18 +385,9 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
         {/* FIELD C: PRICES (GIÁ 1 GÓI, 5 GÓI, 1 THÙNG) */}
         <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2 gap-1">
+          <div className="border-b border-slate-100 pb-2">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
               Giá Bán Lẻ Thực Tế (円)
-            </span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block self-start border ${
-              suggestedPrices.hasHistory
-                ? 'text-blue-700 bg-blue-50 border-blue-200/50'
-                : 'text-slate-600 bg-slate-100 border-slate-200/50'
-            }`}>
-              {suggestedPrices.hasHistory
-                ? 'Nguồn gợi ý: Giá nền + lịch sử tất cả điểm bán'
-                : 'Nguồn gợi ý: Giá nền trong app'}
             </span>
           </div>
 
