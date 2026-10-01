@@ -10,6 +10,7 @@ import { MANUFACTURERS } from '../data/masterData';
 
 interface ProductSelectionProps {
   skus: SKU[];
+  surveys: Survey[];
   survey: Survey;
   store: Store;
   records: SurveyRecord[];
@@ -22,6 +23,7 @@ interface ProductSelectionProps {
 
 export const ProductSelection: React.FC<ProductSelectionProps> = ({
   skus,
+  surveys,
   survey,
   store,
   records,
@@ -63,6 +65,27 @@ export const ProductSelection: React.FC<ProductSelectionProps> = ({
     return records.filter(r => r.surveyId === survey.id).length;
   }, [records, survey.id]);
 
+  // Add one popularity point for each distinct store where the SKU has been recorded.
+  // Repeated survey rounds at the same store count only once.
+  const observedStoreCountBySku = useMemo(() => {
+    const storeIdBySurveyId = new Map<string, string>(
+      surveys.map(item => [item.id, item.storeId] as const)
+    );
+    const storeIdsBySkuId = new Map<string, Set<string>>();
+
+    records.forEach(record => {
+      const storeId = storeIdBySurveyId.get(record.surveyId);
+      if (!storeId) return;
+      const storeIds = storeIdsBySkuId.get(record.skuId) ?? new Set<string>();
+      storeIds.add(storeId);
+      storeIdsBySkuId.set(record.skuId, storeIds);
+    });
+
+    return new Map<string, number>(
+      Array.from(storeIdsBySkuId, ([skuId, storeIds]) => [skuId, storeIds.size] as const)
+    );
+  }, [records, surveys]);
+
   // Filter SKUs based on search box (across all manufacturers) or selected manufacturer, and sort by store_frequency descending
   const filteredSkus = useMemo(() => {
     let result = skus;
@@ -78,16 +101,16 @@ export const ProductSelection: React.FC<ProductSelectionProps> = ({
       result = result.filter(item => item.manufacturer === selectedManufacturer);
     }
 
-    // Sort by store_frequency descending
+    // Sort by initial frequency plus distinct stores observed in actual app data.
     return [...result].sort((a, b) => {
-      const freqA = a.storeFrequency ?? 0;
-      const freqB = b.storeFrequency ?? 0;
+      const freqA = (a.storeFrequency ?? 0) + (observedStoreCountBySku.get(a.id) ?? 0);
+      const freqB = (b.storeFrequency ?? 0) + (observedStoreCountBySku.get(b.id) ?? 0);
       if (freqB !== freqA) {
         return freqB - freqA;
       }
       return 0;
     });
-  }, [skus, searchQuery, selectedManufacturer]);
+  }, [skus, searchQuery, selectedManufacturer, observedStoreCountBySku]);
 
   const handleToggleManufacturer = (mfg: string) => {
     if (selectedManufacturer === mfg) {

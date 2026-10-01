@@ -452,6 +452,7 @@ export default function App() {
         return (
           <ProductSelection
             skus={skus}
+            surveys={surveys}
             survey={activeSurvey}
             store={activeStore}
             records={records}

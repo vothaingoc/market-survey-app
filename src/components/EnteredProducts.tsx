@@ -20,6 +20,16 @@ interface EnteredProductsProps {
   onBack: () => void;
 }
 
+function formatExpiryForDisplay(value: string): string {
+  const match = value.trim().match(/^(\d{4})[\/-](\d{1,2})$/);
+  if (!match) return value;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return value;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}/${String(month).padStart(2, '0')}/${String(lastDay).padStart(2, '0')}`;
+}
+
 export const EnteredProducts: React.FC<EnteredProductsProps> = ({
   records,
   skus,
@@ -192,7 +202,7 @@ export const EnteredProducts: React.FC<EnteredProductsProps> = ({
                     <div>
                       <span className="text-[9px] text-slate-400 block uppercase font-bold leading-tight">HSD / Face</span>
                       <span className="text-xs font-bold font-mono text-emerald-700 leading-tight block truncate">
-                        {record.expiryDate || '—'}{record.factoryCode ? ` ${record.factoryCode}` : ''}
+                        {record.expiryDate ? formatExpiryForDisplay(record.expiryDate) : '—'}{record.factoryCode ? ` ${record.factoryCode}` : ''}
                       </span>
                       <span className="text-[10px] text-slate-400 font-mono">
                         ({record.facing} Face)

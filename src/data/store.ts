@@ -102,6 +102,12 @@ function toUiDate(value: unknown): string {
   return iso ? iso.replace(/-/g, '/') : '';
 }
 
+function toCsvExpiryDate(value: unknown): string {
+  if (isBlank(value)) return '';
+  const iso = normalizeIsoDate(value);
+  return iso ? iso.replace(/-/g, '/') : String(value);
+}
+
 function normalizeDistribution(value: unknown): { value: NormalizedDistribution; label: string; legacy: DistributionType } {
   const raw = String(value || '').toLowerCase();
   if (raw.includes('official') || raw.includes('ch') || raw.includes('ngach')) {
@@ -780,7 +786,7 @@ export const OfflineDB = {
         r.price1 !== null ? r.price1 : '',
         r.price5 !== null ? r.price5 : '',
         r.priceCarton !== null ? r.priceCarton : '',
-        r.expiryDate,
+        toCsvExpiryDate(r.expiryDate),
         r.factoryCode || '',
         r.facing,
         r.photoCount || (r.photos && r.photos.length > 0 ? `Có (${r.photos.length} ảnh)` : (r.photo ? 'Có (1 ảnh)' : 'Không'))
@@ -873,7 +879,7 @@ export const OfflineDB = {
         record.price1 ?? '',
         record.price5 ?? '',
         record.priceCarton ?? '',
-        record.expiryDate || '',
+        toCsvExpiryDate(record.expiryDate),
         record.factoryCode || '',
         record.facing,
         rawPhotos.length,

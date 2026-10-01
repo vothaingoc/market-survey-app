@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { SKU, DistributionType, SurveyRecord } from '../types';
 import { OfflineDB } from '../data/store';
 import { optimizeImageFile } from '../utils/imageOptimization';
 import { ArrowLeft, Plus, Minus, Camera, Save, RefreshCw, X, AlertCircle, ZoomIn } from 'lucide-react';
 
 const ACV_FACTORY_CODES = ['SG 1', 'SG 2', 'BD', 'HY', 'VL', 'DN', 'NV', 'BN', 'HV'];
+const MAX_PRICE_SUGGESTIONS = 10;
 
 interface ProductEntryProps {
   sku: SKU;
@@ -37,6 +38,9 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   const [photos, setPhotos] = useState<string[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [isProcessingPhotos, setIsProcessingPhotos] = useState(false);
+  const expiryInputRef = useRef<HTMLInputElement>(null);
+  const currentYear = new Date().getFullYear();
+  const suggestedYears = [currentYear, currentYear + 1, currentYear + 2];
 
   const isACV = useMemo(() => {
     return sku.manufacturer?.trim().toUpperCase() === 'ACV';
@@ -65,7 +69,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
   }, [initialRecord]);
 
   // Handle expiration date auto-formatting
-  // Rule: surveyor simply types the printed date: e.g. 260915 -> 2026/09/15, 2609 -> 2026/09
+  // Rule: 260915 -> 2026/09/15. A month-only value such as 2609 uses that month's last day.
   const handleExpiryChange = (val: string) => {
     // Only accept numbers
     const digits = val.replace(/\D/g, '').substring(0, 6);
@@ -73,16 +77,31 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
     setExpiryError('');
   };
 
+  const interpretExpiry = (digits: string): { year: number; month: number; day: number | null } => {
+    if (digits.length === 4) {
+      const firstPair = Number(digits.slice(0, 2));
+      const secondPair = Number(digits.slice(2, 4));
+      if (firstPair >= 1 && firstPair <= 12) {
+        return { year: currentYear, month: firstPair, day: secondPair };
+      }
+      return { year: 2000 + firstPair, month: secondPair, day: null };
+    }
+
+    return {
+      year: 2000 + Number(digits.slice(0, 2)),
+      month: Number(digits.slice(2, 4)),
+      day: Number(digits.slice(4, 6)),
+    };
+  };
+
   const validateExpiry = (digits: string): string => {
     if (!digits) return '';
-    if (digits.length !== 4 && digits.length !== 6) return 'HSD cần có 4 số (YYMM) hoặc 6 số (YYMMDD).';
+    if (digits.length !== 4 && digits.length !== 6) return 'HSD cần có 4 số (MMDD hoặc YYMM) hoặc 6 số (YYMMDD).';
 
-    const year = 2000 + Number(digits.slice(0, 2));
-    const month = Number(digits.slice(2, 4));
+    const { year, month, day } = interpretExpiry(digits);
     if (month < 1 || month > 12) return 'Tháng phải nằm trong khoảng 01–12.';
-    if (digits.length === 4) return '';
+    if (day === null) return '';
 
-    const day = Number(digits.slice(4, 6));
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
     if (day < 1 || day > daysInMonth) return `Ngày không hợp lệ. Tháng ${String(month).padStart(2, '0')}/${year} có ${daysInMonth} ngày.`;
     return '';
@@ -90,67 +109,92 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
   // Convert raw digits to Vietnamese-standard formatted string
   const formattedExpiryPreview = () => {
-    if (expiryRaw.length === 4) {
-      // '2609' -> '2026/09'
-      return `20${expiryRaw.substring(0, 2)}/${expiryRaw.substring(2, 4)}`;
-    } else if (expiryRaw.length === 6) {
-      // '260915' -> '2026/09/15'
-      return `20${expiryRaw.substring(0, 2)}/${expiryRaw.substring(2, 4)}/${expiryRaw.substring(4, 6)}`;
+    if (expiryRaw.length === 4 || expiryRaw.length === 6) {
+      const error = validateExpiry(expiryRaw);
+      if (error) return 'Ngày không hợp lệ';
+      const { year, month, day } = interpretExpiry(expiryRaw);
+      if (day !== null) {
+        return `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`;
+      }
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      return `${year}/${String(month).padStart(2, '0')}/${String(lastDay).padStart(2, '0')}`;
     } else if (expiryRaw.length > 0) {
-      return `Chưa đủ chữ số (Gõ ví dụ: 2609 hoặc 260915)`;
+      return 'Chưa đủ chữ số';
     }
     return 'Chưa nhập';
   };
 
+  const handleSuggestedYear = (year: number) => {
+    const shortYear = String(year).slice(-2);
+    let nextValue = shortYear;
+
+    if (expiryRaw.length === 4) {
+      const firstPair = Number(expiryRaw.slice(0, 2));
+      nextValue = firstPair >= 1 && firstPair <= 12
+        ? `${shortYear}${expiryRaw}`
+        : `${shortYear}${expiryRaw.slice(2)}`;
+    } else if (expiryRaw.length === 6) {
+      nextValue = `${shortYear}${expiryRaw.slice(2)}`;
+    }
+
+    setExpiryRaw(nextValue);
+    setExpiryError('');
+    expiryInputRef.current?.focus();
+    requestAnimationFrame(() => {
+      const input = expiryInputRef.current;
+      input?.setSelectionRange(nextValue.length, nextValue.length);
+    });
+  };
+
   // Dynamic price suggestions based on previous surveys
   const suggestedPrices = useMemo(() => {
-    // 1. Get current store ID from current survey
-    const currentSurvey = OfflineDB.getSurveys().find(s => s.id === surveyId);
-    const currentStoreId = currentSurvey?.storeId;
-
-    // 2. Find other surveys of this store
-    const storeSurveys = currentStoreId 
-      ? OfflineDB.getSurveys().filter(s => s.storeId === currentStoreId && s.id !== surveyId)
-      : [];
-    const storeSurveyIds = storeSurveys.map(s => s.id);
-
-    // 3. Get all records for this SKU
-    const allRecordsForSku = OfflineDB.getRecords().filter(r => r.skuId === sku.id);
-
-    // 4. Find records of this SKU specifically at this store
-    const thisStoreRecords = allRecordsForSku.filter(r => storeSurveyIds.includes(r.surveyId));
-
-    // Determine the source of suggestions and the matching records
-    const hasThisStoreHistory = thisStoreRecords.length > 0;
-    const hasOtherStoreHistory = allRecordsForSku.length > 0;
-    const targetRecords = hasThisStoreHistory ? thisStoreRecords : allRecordsForSku;
-
-    const getUniquePrices = (key: 'price1' | 'price5' | 'priceCarton'): number[] => {
-      const pricesSet = new Set<number>();
-      targetRecords.forEach(r => {
-        const val = r[key];
-        if (val !== null && val > 0) {
-          pricesSet.add(val);
-        }
-      });
-      return Array.from(pricesSet).sort((a, b) => a - b);
-    };
-
-    const p1 = getUniquePrices('price1');
-    const p5 = getUniquePrices('price5');
-    const pCarton = getUniquePrices('priceCarton');
-
     const DEFAULT_P1 = [70, 80, 90, 100, 120, 150];
     const DEFAULT_P5 = [350, 400, 450, 500, 600, 750];
-    const DEFAULT_CARTON = [1800, 2000, 2200, 2400, 2800, 3000];
+    const DEFAULT_CARTON = [1800, 2000, 2200, 2400, 2500, 2600, 2700, 2800, 3000];
+
+    // Always combine the built-in baseline with this SKU's prices from every store.
+    const allRecordsForSku = OfflineDB.getRecords().filter(r => r.skuId === sku.id);
+
+    const getRankedPrices = (
+      key: 'price1' | 'price5' | 'priceCarton',
+      baseline: number[]
+    ): number[] => {
+      const stats = new Map<number, { count: number; latestTime: number }>();
+      baseline.forEach(price => stats.set(price, { count: 1, latestTime: 0 }));
+
+      allRecordsForSku.forEach(r => {
+        // An unconfirmed copied record is not a new market observation.
+        if (r.verificationStatus === 'copied') return;
+        const val = r[key];
+        if (val !== null && val > 0) {
+          const normalizedTimestamp = r.timestamp?.replace(/\//g, '-').replace(' ', 'T') || '';
+          const recordedAt = Date.parse(normalizedTimestamp) || 0;
+          const current = stats.get(val) ?? { count: 0, latestTime: 0 };
+          stats.set(val, {
+            count: current.count + 1,
+            latestTime: Math.max(current.latestTime, recordedAt),
+          });
+        }
+      });
+
+      return Array.from(stats.entries())
+        .sort(([priceA, statA], [priceB, statB]) => (
+          statB.count - statA.count
+          || statB.latestTime - statA.latestTime
+          || priceA - priceB
+        ))
+        .slice(0, MAX_PRICE_SUGGESTIONS)
+        .map(([price]) => price)
+        .sort((a, b) => a - b);
+    };
 
     return {
-      price1: p1.length > 0 ? p1 : DEFAULT_P1,
-      price5: p5.length > 0 ? p5 : DEFAULT_P5,
-      priceCarton: pCarton.length > 0 ? pCarton : DEFAULT_CARTON,
-      source: hasThisStoreHistory ? 'this-store' : (hasOtherStoreHistory ? 'other-stores' : 'default')
+      price1: getRankedPrices('price1', DEFAULT_P1),
+      price5: getRankedPrices('price5', DEFAULT_P5),
+      priceCarton: getRankedPrices('priceCarton', DEFAULT_CARTON),
+      hasHistory: allRecordsForSku.length > 0,
     };
-  }, [sku.id, surveyId]);
+  }, [sku.id]);
 
   const handleQuickPrice1 = (price: number) => {
     setPrice1(String(price));
@@ -198,10 +242,10 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
     // Determine final expiry format
     let finalExpiry = '';
-    if (expiryRaw.length === 4) {
-      finalExpiry = `20${expiryRaw.substring(0, 2)}/${expiryRaw.substring(2, 4)}`;
-    } else if (expiryRaw.length === 6) {
-      finalExpiry = `20${expiryRaw.substring(0, 2)}/${expiryRaw.substring(2, 4)}/${expiryRaw.substring(4, 6)}`;
+    if (expiryRaw.length === 4 || expiryRaw.length === 6) {
+      const { year, month, day } = interpretExpiry(expiryRaw);
+      const resolvedDay = day ?? new Date(Date.UTC(year, month, 0)).getUTCDate();
+      finalExpiry = `${year}/${String(month).padStart(2, '0')}/${String(resolvedDay).padStart(2, '0')}`;
     } else {
       finalExpiry = expiryRaw;
     }
@@ -336,18 +380,14 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
               Giá Bán Lẻ Thực Tế (円)
             </span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block self-start ${
-              suggestedPrices.source === 'this-store'
-                ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/50'
-                : suggestedPrices.source === 'other-stores'
-                  ? 'text-blue-700 bg-blue-50 border border-blue-200/50'
-                  : 'text-slate-600 bg-slate-100 border border-slate-200/50'
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block self-start border ${
+              suggestedPrices.hasHistory
+                ? 'text-blue-700 bg-blue-50 border-blue-200/50'
+                : 'text-slate-600 bg-slate-100 border-slate-200/50'
             }`}>
-              {suggestedPrices.source === 'this-store' 
-                ? 'Nguồn gợi ý: Lịch sử tiệm này' 
-                : suggestedPrices.source === 'other-stores' 
-                  ? 'Nguồn gợi ý: Tiệm khác cùng SKU' 
-                  : 'Nguồn gợi ý: Giá phổ biến'}
+              {suggestedPrices.hasHistory
+                ? 'Nguồn gợi ý: Giá nền + lịch sử tất cả điểm bán'
+                : 'Nguồn gợi ý: Giá nền trong app'}
             </span>
           </div>
 
@@ -458,8 +498,24 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
               Xem trước: {formattedExpiryPreview()}
             </span>
           </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500 mr-0.5">Chọn nhanh năm:</span>
+            {suggestedYears.map(year => (
+              <button
+                key={year}
+                id={`btn-expiry-year-${year}`}
+                type="button"
+                onClick={() => handleSuggestedYear(year)}
+                className="px-3 py-1.5 text-xs font-extrabold font-mono rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors"
+              >
+                {year}
+              </button>
+            ))}
+          </div>
           
           <input
+            ref={expiryInputRef}
             id="input-expiry-raw"
             type="tel"
             inputMode="numeric"
@@ -468,7 +524,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
             onChange={(e) => handleExpiryChange(e.target.value)}
             aria-invalid={Boolean(expiryError)}
             aria-describedby={expiryError ? 'expiry-date-error' : undefined}
-            placeholder="Gõ nhanh số in trên vỏ: e.g. 260915 hoặc 2609"
+            placeholder="MMDD, YYMM hoặc YYMMDD"
             className={`w-full px-4 py-3 bg-slate-50 border focus:bg-white text-base font-mono font-bold rounded-xl outline-none ${expiryError ? 'border-red-500 focus:border-red-500' : 'border-slate-200 focus:border-slate-400'}`}
           />
           {expiryError && <p id="expiry-date-error" role="alert" className="text-xs font-medium text-red-600">{expiryError}</p>}
@@ -520,7 +576,7 @@ export const ProductEntry: React.FC<ProductEntryProps> = ({
 
           <div className="flex items-start space-x-1 text-[11px] text-slate-400 pt-0.5">
             <AlertCircle className="w-3.5 h-3.5 text-slate-300 shrink-0 mt-0.5" />
-            <p>Mẹo: Gõ <span className="font-bold text-slate-500">260915</span> tương ứng với 2026/09/15. Chỉ gõ số, máy tự thêm năm và gạch chéo!</p>
+            <p>Mẹo: Gõ <span className="font-bold text-slate-500">1204</span> để nhập 04/12 năm nay; <span className="font-bold text-slate-500">2609</span> lấy ngày cuối tháng 09/2026.</p>
           </div>
         </div>
 
