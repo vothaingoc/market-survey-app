@@ -415,6 +415,7 @@ export default function App() {
             onSelectSurvey={handleSelectSurvey}
             onDeleteSurvey={handleDeleteSurvey}
             onNavigate={(scr) => setScreen(scr)}
+            onDataImported={refreshData}
           />
         );
 

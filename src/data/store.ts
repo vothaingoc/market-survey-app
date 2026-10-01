@@ -894,6 +894,7 @@ export const OfflineDB = {
 
   // Fast Export - Generates structured JSON text for AI analysis and re-import
   exportJSON(surveyIds?: string[]): string {
+    const includeAllMasterData = !surveyIds || surveyIds.length === 0;
     let surveys = this.getSurveys();
     if (surveyIds && surveyIds.length > 0) {
       surveys = surveys.filter(s => surveyIds.includes(s.id));
@@ -918,8 +919,12 @@ export const OfflineDB = {
 
     const neededStoreIds = new Set(surveys.map(s => s.storeId));
     const neededSkuIds = new Set(allRecords.map(r => r.skuId));
-    const stores = allStores.filter(store => neededStoreIds.has(store.id));
-    const skus = allSkus.filter(sku => neededSkuIds.has(sku.id));
+    const stores = includeAllMasterData
+      ? allStores
+      : allStores.filter(store => neededStoreIds.has(store.id));
+    const skus = includeAllMasterData
+      ? allSkus
+      : allSkus.filter(sku => neededSkuIds.has(sku.id));
 
     const surveySummaries = surveys.map(survey => {
       const surveyDate = normalizeIsoDate(survey.date);
@@ -1013,6 +1018,7 @@ export const OfflineDB = {
   },
 
   exportBackupPhotos(surveyIds?: string[]): { filename: string; mimeType: string; blob: Blob }[] {
+    const includeAllStores = !surveyIds || surveyIds.length === 0;
     let surveys = this.getSurveys();
     if (surveyIds && surveyIds.length > 0) {
       surveys = surveys.filter(s => surveyIds.includes(s.id));
@@ -1020,7 +1026,7 @@ export const OfflineDB = {
     const surveyIdSet = new Set(surveys.map(s => s.id));
     const selectedStoreIds = new Set(surveys.map(survey => survey.storeId));
     const storefrontPhotos = this.getStores()
-      .filter(store => selectedStoreIds.has(store.id) && !!store.photo)
+      .filter(store => (includeAllStores || selectedStoreIds.has(store.id)) && !!store.photo)
       .map(store => {
         const exportedPhoto = photoToExport(store.photo!, `${store.id}_storefront`, 0, 'storefront');
         return { filename: exportedPhoto.filename, mimeType: exportedPhoto.mimeType, blob: dataUrlToBlob(store.photo!) };

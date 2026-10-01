@@ -21,6 +21,7 @@ interface SurveyListProps {
   onSelectSurvey: (surveyId: string) => void;
   onDeleteSurvey: (surveyId: string) => void;
   onNavigate: (screen: string) => void;
+  onDataImported: () => void;
 }
 
 export const SurveyList: React.FC<SurveyListProps> = ({
@@ -34,6 +35,7 @@ export const SurveyList: React.FC<SurveyListProps> = ({
   onSelectSurvey,
   onDeleteSurvey,
   onNavigate,
+  onDataImported,
 }) => {
   const storeMap = React.useMemo(() => new Map(stores.map(s => [s.id, s])), [stores]);
   const [deleteSurveyId, setDeleteSurveyId] = React.useState<string | null>(null);
@@ -266,6 +268,7 @@ export const SurveyList: React.FC<SurveyListProps> = ({
       <ExportModal
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
+        onDataImported={onDataImported}
         selectedSurveyIds={selectedSurveyIds}
       />
 

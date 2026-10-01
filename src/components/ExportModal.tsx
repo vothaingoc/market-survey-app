@@ -5,22 +5,25 @@
 
 import React, { useState } from 'react';
 import { OfflineDB } from '../data/store';
-import { FileSpreadsheet, Bot, X, Check, Share2, Archive, Images } from 'lucide-react';
-import { createZipFromBlobs, textToBytes } from '../utils/zip';
+import { FileSpreadsheet, Bot, X, Check, Share2, Archive, Images, Upload } from 'lucide-react';
+import { bytesToDataUrl, bytesToText, createZipFromBlobs, readZip, textToBytes } from '../utils/zip';
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onDataImported: () => void;
   selectedSurveyIds: string[];
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
   isOpen,
   onClose,
+  onDataImported,
   selectedSurveyIds,
 }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isBuildingZip, setIsBuildingZip] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -153,11 +156,68 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
+  const handleImportBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || isImporting) return;
+
+    setIsImporting(true);
+    try {
+      const files = await readZip(file);
+      const surveyJson = files.find(item => item.path === 'Survey.json');
+      if (!surveyJson) throw new Error('Survey.json is missing from the ZIP file');
+
+      const jsonText = bytesToText(surveyJson.data);
+      const parsed = JSON.parse(jsonText);
+      const photoMimeByFilename = new Map<string, string>();
+      parsed.stores?.forEach((store: any) => {
+        store.photos?.forEach((photo: any) => {
+          if (photo?.filename && photo?.mimeType) {
+            photoMimeByFilename.set(photo.filename, photo.mimeType);
+          }
+        });
+      });
+      parsed.observations?.forEach((observation: any) => {
+        observation.photos?.forEach((photo: any) => {
+          if (photo?.filename && photo?.mimeType) {
+            photoMimeByFilename.set(photo.filename, photo.mimeType);
+          }
+        });
+      });
+
+      const photoDataByFilename: Record<string, string> = {};
+      files
+        .filter(item => item.path.startsWith('photos/'))
+        .forEach(item => {
+          const filename = item.path.replace(/^photos\//, '');
+          photoDataByFilename[filename] = bytesToDataUrl(
+            item.data,
+            photoMimeByFilename.get(filename) || 'application/octet-stream'
+          );
+        });
+
+      const result = await OfflineDB.importJSON(jsonText, photoDataByFilename);
+      if (!result.ok) throw new Error(result.errors.join('; '));
+
+      onDataImported();
+      setSuccessMsg(`Đã khôi phục ${result.imported.surveys} đợt, ${result.imported.stores} điểm bán và ${result.imported.observations} bản ghi.`);
+      setTimeout(() => {
+        setSuccessMsg(null);
+        onClose();
+      }, 2200);
+    } catch (error) {
+      console.error('Could not restore backup', error);
+      window.alert('Không thể khôi phục. Hãy chọn đúng file Survey_backup.zip được xuất từ app.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
       <div
         id="export-format-modal"
-        className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-slideUp"
+        className="w-full max-w-md max-h-[calc(100dvh-2rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-slideUp flex flex-col"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50">
@@ -175,7 +235,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-3">
+        <div className="p-5 space-y-3 overflow-y-auto">
           {successMsg && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-xs font-semibold flex items-center space-x-2 animate-fadeIn">
               <Check className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -252,6 +312,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </div>
             </div>
           </button>
+
+          <label
+            htmlFor="input-restore-backup"
+            className={`w-full text-left p-4 bg-amber-50/80 border border-amber-200/80 rounded-xl flex items-start space-x-3.5 transition-all group ${
+              isImporting ? 'opacity-60 cursor-wait' : 'hover:bg-amber-100 active:bg-amber-200 cursor-pointer'
+            }`}
+          >
+            <div className="p-2.5 bg-amber-600 text-white rounded-xl shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Upload className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-900 text-base">
+                {isImporting ? 'Đang khôi phục...' : 'Khôi phục từ bản sao lưu'}
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                Chọn file Survey_backup.zip đã xuất từ app
+              </div>
+            </div>
+          </label>
+          <input
+            id="input-restore-backup"
+            type="file"
+            accept="application/zip,.zip"
+            disabled={isImporting}
+            onChange={handleImportBackup}
+            className="hidden"
+          />
 
           <button
             id="btn-cancel-export"
